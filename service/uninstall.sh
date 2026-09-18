@@ -4,7 +4,7 @@
 #   ./service/uninstall.sh
 set -euo pipefail
 
-UNIT="claude-bridge-telegram.service"
+UNIT="ai-session-telegram.service"
 DEST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 systemctl --user disable --now "$UNIT" 2>/dev/null || true

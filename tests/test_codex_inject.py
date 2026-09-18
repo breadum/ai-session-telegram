@@ -7,8 +7,8 @@ import subprocess
 
 import pytest
 
-from claude_bridge_telegram import paths
-from claude_bridge_telegram.codex_inject import CodexInjectError, inject_codex_message
+from ai_session_telegram import paths
+from ai_session_telegram.codex_inject import CodexInjectError, inject_codex_message
 
 
 def _ok(cmd, **kwargs):

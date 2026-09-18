@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from claude_bridge_telegram.broker import _format_outbox, _read_outbox_item
+from ai_session_telegram.broker import _format_outbox, _read_outbox_item
 
 
 def test_format_outbox_prefixes():

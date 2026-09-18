@@ -1,6 +1,6 @@
 # CLAUDE.md — working rules for this repo
 
-Guidance for anyone (human or Claude Code) changing `claude-bridge-telegram`.
+Guidance for anyone (human, Claude Code, or Codex) changing `ai-session-telegram`.
 Read this before editing. It records the invariants that are easy to break.
 
 ## What this is
@@ -22,7 +22,7 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
    `~/.claude/settings.json`, Codex's `hooks/codex_*.py` from
    `~/.codex/hooks.json` — both with the *system* `python3`, on every session
    event.
-   - No third-party imports. No `import claude_bridge_telegram`. `_bridge_common.py`
+   - No third-party imports. No `import ai_session_telegram`. `_bridge_common.py`
      is a deliberate standalone mirror of `paths.py` — keep them in sync by hand;
      do not merge them. Both agents' hooks share this one file.
    - A hook writes one small file under `paths.ROOT` and calls `bc.emit()`. It
@@ -127,8 +127,9 @@ uv run pytest
 - Tests must not hit the network or the real `~/.claude`. `tests/conftest.py`
   points `CLAUDE_TG_BRIDGE_HOME` at a temp dir before collection; use
   `tests/fakes.py::FakeTelegram` and a stubbed `broker.inject_user_message`.
-- Hooks are exercised as real subprocesses (`tests/test_hooks.py`) — that is how
-  Claude Code runs them, so keep it that way.
+- Hooks are exercised as real subprocesses (`tests/test_hooks.py`, both the
+  Claude and `codex_*` ones) — that is how each agent actually runs them, so
+  keep it that way.
 
 ## Commits
 
@@ -141,8 +142,18 @@ uv run pytest
 
 ## Running as a service
 
-`service/claude-bridge-telegram.service.in` is a template; `service/install.sh`
+`service/ai-session-telegram.service.in` is a template; `service/install.sh`
 renders `@REPO_DIR@` / `@BRIDGE_BIN@` from its own location, so the checkout can
 live anywhere. After moving the repo: `uv sync`, `bridge install-hooks`
 (add `--agent codex` or `--agent all` if Codex sessions are in use too),
 `./service/install.sh` again.
+
+Only one broker may run at a time, machine-wide — it's a single-instance lock
+on `~/.claude/bridge/state/broker.pid`, and that runtime dir is shared across
+*every* checkout of this repo regardless of path (see `paths.py`). Cloning or
+worktree-ing the repo a second place and running `bridge start`/the service
+there races the first one for that lock; whichever loses silently no-ops
+("broker already running") while the other — possibly running stale code —
+keeps serving. If a broker seems to be running old behavior, check
+`ps aux | grep ai_session_telegram.broker` for more than one hit before
+assuming the code itself is wrong.

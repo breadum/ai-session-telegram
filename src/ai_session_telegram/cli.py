@@ -154,7 +154,7 @@ def cmd_start() -> None:
     paths.ensure_dirs()
     logf = open(paths.LOG_FILE, "a")
     proc = subprocess.Popen(
-        [sys.executable, "-m", "claude_bridge_telegram.broker"],
+        [sys.executable, "-m", "ai_session_telegram.broker"],
         stdout=logf,
         stderr=logf,
         stdin=subprocess.DEVNULL,

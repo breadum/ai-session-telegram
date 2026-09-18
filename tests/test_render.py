@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from claude_bridge_telegram.render import strip_tags, tidy_prompt, to_telegram_html
+from ai_session_telegram.render import strip_tags, tidy_prompt, to_telegram_html
 
 
 def test_empty():
@@ -91,7 +91,7 @@ def test_table_columns_align_on_display_width():
     out = to_telegram_html(md)
     body = out.removeprefix("<pre>").removesuffix("</pre>").split("\n")
     # every rendered row is the same display width (columns line up)
-    from claude_bridge_telegram.render import _disp_width
+    from ai_session_telegram.render import _disp_width
 
     assert len({_disp_width(line) for line in body}) == 1
     assert "1200" in out and "  3" in out  # right-aligned numeric column

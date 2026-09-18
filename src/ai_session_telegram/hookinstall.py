@@ -48,7 +48,7 @@ CODEX_HOOKS = {
 
 
 def _hooks_dir() -> Path:
-    # src/claude_bridge_telegram/hookinstall.py -> parents[2] == repo root
+    # src/ai_session_telegram/hookinstall.py -> parents[2] == repo root
     return Path(__file__).resolve().parents[2] / "hooks"
 
 

@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from claude_bridge_telegram.claude_inject import InjectError, inject_user_message
+from ai_session_telegram.claude_inject import InjectError, inject_user_message
 
 
 class _Server:
