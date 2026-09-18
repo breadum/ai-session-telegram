@@ -49,6 +49,10 @@ class _Server:
         self._t.join(timeout=3)
 
 
+@pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"),
+    reason="AF_UNIX isn't available on this platform's socket module",
+)
 def test_inject_sends_auth_then_user_frame():
     # A short path directly under the OS temp root, not pytest's tmp_path:
     # AF_UNIX paths are capped at ~104 bytes on macOS, and tmp_path's nested

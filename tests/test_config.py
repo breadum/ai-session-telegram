@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import stat
 
 import pytest
@@ -32,8 +33,11 @@ def test_save_roundtrip_and_perms(bridge_home):
     from ai_session_telegram.config import CONFIG_FILE
 
     assert CONFIG_FILE.exists()
-    mode = stat.S_IMODE(CONFIG_FILE.stat().st_mode)
-    assert mode == 0o600
+    if platform.system() != "Windows":
+        # NTFS has no POSIX permission bits; chmod(0o600) there only ever
+        # toggles the read-only attribute, not owner/group/other bits.
+        mode = stat.S_IMODE(CONFIG_FILE.stat().st_mode)
+        assert mode == 0o600
     loaded = Config.load()
     assert loaded.bot_token == "s3cr3t"
     assert loaded.chat_id == -100123

@@ -90,8 +90,15 @@ uv run bridge install-service # Windows: 작업 스케줄러에 로그온 트리
 ```
 
 > Windows는 이 저장소에서 실제 Windows 머신으로 검증된 적은 없다 (개발·테스트가 전부
-> Linux에서 이뤄짐). `install-service`는 등록과 동시에 한 번 바로 실행도 시키지만, 문제가
-> 있으면 [CLAUDE.md](CLAUDE.md)의 "Running as a service"를 참고하거나 이슈로 알려달라.
+> Linux에서 이뤄짐, CI의 `windows-latest`가 유닛 테스트 수준만 확인). `install-service`는
+> 등록과 동시에 한 번 바로 실행도 시키지만, 문제가 있으면 [CLAUDE.md](CLAUDE.md)의
+> "Running as a service"를 참고하거나 이슈로 알려달라.
+>
+> **알려진 제약**: Windows Python 빌드에 따라 `socket.AF_UNIX`가 아예 없을 수 있다
+> (GitHub Actions windows-latest에서 확인됨) — 이 경우 **Claude Code 세션으로의 메시지
+> 주입(텔레그램→세션)이 안 된다** (세션→텔레그램 미러링은 정상). Codex 세션은 소켓을 안 쓰니
+> 영향 없다. `config.json`의 봇 토큰도 Windows에선 파일 권한(0o600)이 실질적으로 안 걸린다
+> (NTFS엔 그 개념이 없음).
 
 Codex CLI 세션도 같은 그룹에 붙이려면 훅을 하나 더 등록한다 (`--agent all`이면 둘 다).
 

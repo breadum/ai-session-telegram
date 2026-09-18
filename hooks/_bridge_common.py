@@ -74,7 +74,7 @@ def queue_outbox(sid: str, role: str, text: str, *, ai_title: str = "") -> None:
     item: dict = {"role": role, "text": text}
     if ai_title:
         item["ai_title"] = ai_title
-    (d / name).write_text(json.dumps(item, ensure_ascii=False))
+    (d / name).write_text(json.dumps(item, ensure_ascii=False), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -97,7 +97,7 @@ def consume_pending_injection(sid: str, prompt: str) -> bool:
     f = PENDING / f"{sid}.json"
     if not f.exists():
         return False
-    with open(f, "a+") as fh:
+    with open(f, "a+", encoding="utf-8") as fh:
         if os.name == "nt":
             msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
         else:
@@ -150,7 +150,7 @@ def last_assistant_text(transcript_path: str) -> str:
         return "(transcript unavailable)"
 
     best: list[str] = []
-    for line in p.read_text(errors="replace").splitlines():
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -185,7 +185,7 @@ def last_ai_title(transcript_path: str) -> str:
     if not p or not p.exists():
         return ""
     title = ""
-    for line in p.read_text(errors="replace").splitlines():
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line or '"ai-title"' not in line:
             continue
@@ -208,7 +208,7 @@ def ts() -> str:
 
 def read_json(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -216,5 +216,5 @@ def read_json(path: Path) -> dict | None:
 def write_json_atomic(path: Path, obj: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)

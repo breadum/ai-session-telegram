@@ -200,6 +200,28 @@ from documented API behavior only. `tests/test_procutil.py`,
 (the module doesn't exist there) — CI's `windows-latest` matrix leg is the
 only thing that actually imports it.
 
+The `windows-latest` CI leg did catch real bugs beyond the ones above,
+confirmed on GitHub's runner (not just theoretical):
+- Every `Path.write_text()`/`read_text()`/`open()` touching JSON or message
+  text was missing `encoding="utf-8"`. Windows defaults to the console's
+  locale codepage (cp1252 on that runner) instead of UTF-8, so anything
+  non-ASCII — a Korean session label, a Korean message — crashed with
+  `UnicodeEncodeError` the moment it hit disk. Fixed everywhere across
+  `broker.py`, `cli.py`, `config.py`, `hookinstall.py`, `codex_inject.py`,
+  and `hooks/_bridge_common.py` (the ASCII-only ones — pid, offset,
+  timestamps — were left alone).
+- `socket.AF_UNIX` genuinely doesn't exist on that runner's Python 3.12
+  build, contra the assumption in `claude_inject.py`'s docstring that
+  Windows 10 1803+/Python 3.9+ support it. `inject_user_message` now checks
+  `hasattr(socket, "AF_UNIX")` and raises a clean `InjectError` instead of
+  crashing — but this means **Claude Code message injection may not work on
+  Windows at all**, independent of everything else in this section. Codex
+  injection (`codex_inject.py`, a subprocess call) is unaffected.
+- `Path.chmod(0o600)` on `config.py`'s secrets file is a no-op in any
+  meaningful sense on Windows — NTFS has no POSIX permission bits, so the
+  bot token there isn't actually restricted to the owner like it is on
+  Linux/macOS.
+
 Only one broker may run at a time, machine-wide — it's a single-instance lock
 on `~/.ai-session-telegram/state/broker.pid`, and that runtime dir is shared across
 *every* checkout of this repo regardless of path (see `paths.py`). Cloning or

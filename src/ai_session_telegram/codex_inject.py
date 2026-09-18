@@ -36,7 +36,7 @@ class CodexInjectError(Exception):
 def _queue_pending(sid: str, text: str) -> None:
     f = paths.pending_file(sid)
     f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f, "a+") as fh, locked(fh):
+    with open(f, "a+", encoding="utf-8") as fh, locked(fh):
         fh.seek(0)
         try:
             items = json.loads(fh.read() or "[]")

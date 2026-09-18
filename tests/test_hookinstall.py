@@ -27,7 +27,7 @@ def test_install_creates_file_and_all_events(monkeypatch, tmp_path):
     for event, (script, _timeout) in hookinstall.CLAUDE_HOOKS.items():
         [group] = data["hooks"][event]
         [entry] = group["hooks"]
-        assert entry["command"].endswith(script)
+        assert script in entry["command"]  # not endswith: Windows quotes the path
 
 
 def test_install_backs_up_existing_file(monkeypatch, tmp_path):
@@ -95,7 +95,7 @@ def test_codex_install_uses_codex_hooks_and_file(monkeypatch, tmp_path):
     for event, (script, _timeout) in hookinstall.CODEX_HOOKS.items():
         [group] = data["hooks"][event]
         [entry] = group["hooks"]
-        assert entry["command"].endswith(script)
+        assert script in entry["command"]  # not endswith: Windows quotes the path
 
     hookinstall.uninstall_codex()
     assert json.loads(codex.read_text()).get("hooks", {}) == {}

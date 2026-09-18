@@ -64,14 +64,14 @@ def _read_session(sid: str) -> dict | None:
     if not f.exists():
         return None
     try:
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
 
 
 def _write_session(sid: str, rec: dict) -> None:
     tmp = paths.session_file(sid).with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(rec, indent=2) + "\n")
+    tmp.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
     tmp.replace(paths.session_file(sid))
 
 
@@ -93,7 +93,7 @@ def _locked(path: Path):
 def _inbox_append(sid: str, text: str) -> None:
     """Queue a command that failed to inject, for retry on a later loop."""
     f = paths.inbox_file(sid)
-    with _locked(f), f.open("a") as fh:
+    with _locked(f), f.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({"text": text, "ts": _now()}, ensure_ascii=False) + "\n")
 
 
@@ -101,13 +101,13 @@ def _inbox_lines(sid: str) -> list[str]:
     f = paths.inbox_file(sid)
     if not f.exists():
         return []
-    return [ln for ln in f.read_text().splitlines() if ln.strip()]
+    return [ln for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
 def _inbox_rewrite(sid: str, lines: list[str]) -> None:
     f = paths.inbox_file(sid)
     with _locked(f):
-        f.write_text(("\n".join(lines) + "\n") if lines else "")
+        f.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
 
 
 # A turn that has "run" for longer than this is treated as a stale marker left
@@ -215,7 +215,7 @@ class Broker:
     def _process_registrations(self) -> None:
         for f in sorted(paths.REGISTER.glob("*.json")):
             try:
-                req = json.loads(f.read_text())
+                req = json.loads(f.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 f.unlink(missing_ok=True)
                 continue
@@ -540,7 +540,7 @@ def _read_outbox_item(path: Path) -> tuple[str, str, str]:
 
     ai_title is Claude Code's own session title when the hook forwarded one,
     else "". Legacy .txt files are bare assistant text."""
-    raw = path.read_text()
+    raw = path.read_text(encoding="utf-8")
     if path.suffix == ".json":
         try:
             obj = json.loads(raw)
@@ -563,7 +563,7 @@ def _sessions_summary() -> str:
     rows = []
     for f in sorted(paths.SESSIONS.glob("*.json")):
         try:
-            r = json.loads(f.read_text())
+            r = json.loads(f.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         sid = r["session_id"]
@@ -580,7 +580,7 @@ def _sessions_summary() -> str:
 
 def _setup_logging(foreground: bool) -> None:
     paths.ensure_dirs()
-    handlers: list[logging.Handler] = [logging.FileHandler(paths.LOG_FILE)]
+    handlers: list[logging.Handler] = [logging.FileHandler(paths.LOG_FILE, encoding="utf-8")]
     if foreground:
         handlers.append(logging.StreamHandler(sys.stderr))
     logging.basicConfig(

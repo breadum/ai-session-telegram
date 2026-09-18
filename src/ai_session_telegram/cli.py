@@ -159,7 +159,7 @@ def cmd_start() -> None:
         print(f"broker already running (pid {_broker_pid()})")
         return
     paths.ensure_dirs()
-    logf = open(paths.LOG_FILE, "a")
+    logf = open(paths.LOG_FILE, "a", encoding="utf-8")
     detach_kwargs = (
         # getattr'd rather than referenced directly: these constants only exist
         # in the subprocess module on Windows, so a direct reference would raise
@@ -238,11 +238,12 @@ def cmd_status() -> None:
     print(f"\nsessions ({len(sess)}):")
     for f in sess:
         try:
-            r = json.loads(f.read_text())
+            r = json.loads(f.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         inbox = paths.inbox_file(r["session_id"])
-        q = sum(1 for line in inbox.read_text().splitlines() if line.strip()) if inbox.exists() else 0
+        lines = inbox.read_text(encoding="utf-8").splitlines() if inbox.exists() else []
+        q = sum(1 for line in lines if line.strip())
         sock = "codex" if r.get("kind") == "codex" else ("sock" if r.get("messaging_socket") else "----")
         busy = "busy" if paths.busy_file(r["session_id"]).exists() else "idle"
         print(f"  {r['label']:<24} {r['status']:<8} {busy} {sock} retry={q}  {r['cwd']}")
@@ -252,7 +253,7 @@ def cmd_logs(follow: bool) -> None:
     if not paths.LOG_FILE.exists():
         print("no log yet")
         return
-    with paths.LOG_FILE.open("r", errors="replace") as f:
+    with paths.LOG_FILE.open("r", encoding="utf-8", errors="replace") as f:
         for line in collections.deque(f, maxlen=80):
             print(line, end="")
         if not follow:
@@ -278,7 +279,7 @@ def cmd_prune(*, all_sessions: bool, assume_yes: bool) -> None:
     targets: list[dict] = []
     for f in sorted(paths.SESSIONS.glob("*.json")):
         try:
-            r = json.loads(f.read_text())
+            r = json.loads(f.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         if all_sessions or r.get("status") == "ended":

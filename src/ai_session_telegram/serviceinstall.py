@@ -91,7 +91,12 @@ def _launchctl(*args: str) -> subprocess.CompletedProcess:
 
 
 def _domain_target() -> str:
-    return f"gui/{os.getuid()}"
+    # getattr'd rather than os.getuid() directly: that attribute doesn't
+    # exist in Windows' os module at all, and this only needs to be safe to
+    # *call* there for tests that simulate the macOS path on any host OS —
+    # real macOS always has getuid.
+    getuid = getattr(os, "getuid", lambda: 0)
+    return f"gui/{getuid()}"
 
 
 def _install_macos() -> None:

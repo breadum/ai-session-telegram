@@ -65,7 +65,7 @@ def _command_for(script: str) -> str:
 
 def _load(settings: Path) -> dict:
     if settings.exists():
-        return json.loads(settings.read_text())
+        return json.loads(settings.read_text(encoding="utf-8"))
     return {}
 
 
@@ -87,7 +87,7 @@ def _is_ours(entry: dict) -> bool:
 def _install(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> None:
     if not settings.exists():
         settings.parent.mkdir(parents=True, exist_ok=True)
-        settings.write_text("{}\n")
+        settings.write_text("{}\n", encoding="utf-8")
     print(f"backup: {_backup(settings)}")
     data = _load(settings)
     hooks = data.setdefault("hooks", {})
@@ -102,7 +102,7 @@ def _install(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> Non
         print(f"  + {event}: {_command_for(script)}"
               + (f"  (timeout {timeout}s)" if timeout else ""))
 
-    settings.write_text(json.dumps(data, indent=2) + "\n")
+    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _uninstall(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> None:
@@ -120,7 +120,7 @@ def _uninstall(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> N
         removed += before - len(groups)
         if not groups:
             hooks.pop(event, None)
-    settings.write_text(json.dumps(data, indent=2) + "\n")
+    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     print(f"removed {removed} hook group(s) from {settings}.")
 
 

@@ -39,12 +39,21 @@ def inject_user_message(
     if not sock_path or not token:
         raise InjectError("missing socket path or token for this session")
 
+    af_unix = getattr(socket, "AF_UNIX", None)
+    if af_unix is None:
+        # Confirmed missing on GitHub's windows-latest Python 3.12 build (no
+        # AF_UNIX support compiled in), so this isn't just theoretical.
+        raise InjectError(
+            "this platform's socket module has no AF_UNIX — "
+            "Claude Code message injection isn't available here"
+        )
+
     auth = json.dumps({"type": "auth", "token": token})
     frame = json.dumps(
         {"type": "user", "message": {"role": "user", "content": text}}
     )
 
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s = socket.socket(af_unix, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
         s.connect(sock_path)

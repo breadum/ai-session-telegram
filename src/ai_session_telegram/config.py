@@ -30,7 +30,7 @@ class Config:
     def load(cls) -> Config:
         data: dict = {}
         if CONFIG_FILE.exists():
-            data = json.loads(CONFIG_FILE.read_text())
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         cfg = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
         if v := os.environ.get("AI_TG_BOT_TOKEN"):
@@ -43,7 +43,7 @@ class Config:
 
     def save(self) -> None:
         paths.ROOT.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps(asdict(self), indent=2) + "\n")
+        CONFIG_FILE.write_text(json.dumps(asdict(self), indent=2) + "\n", encoding="utf-8")
         CONFIG_FILE.chmod(0o600)
 
     def validate(self) -> None:
