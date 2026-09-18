@@ -27,9 +27,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import paths
+from .claude_inject import InjectError, inject_user_message
 from .codex_inject import CodexInjectError, inject_codex_message
 from .config import Config
-from .inject import InjectError, inject_user_message
 from .render import tidy_prompt, to_telegram_html
 from .telegram import Telegram, TelegramError, send_with_retry
 
