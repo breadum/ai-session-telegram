@@ -35,6 +35,7 @@ def test_registration_creates_topic(monkeypatch):
     assert rec["status"] == "active"
     assert paths.thread_file(101).read_text() == "s1"
     assert fake.created == [(-1001, "proj …")]
+    assert fake.icon_colors == [broker.ICON_COLOR["claude"]]
     assert any("proj" in t for _, t, *_ in fake.sent)  # header sent to topic
     assert not (paths.REGISTER / "s1.json").exists()
 
@@ -253,6 +254,8 @@ def test_codex_registration_creates_topic_without_a_socket(monkeypatch):
     assert rec["kind"] == "codex"
     assert rec["thread_id"] == 101
     assert fake.created == [(-1001, "[codex] proj …")]
+    assert fake.icon_colors == [broker.ICON_COLOR["codex"]]
+    assert broker.ICON_COLOR["codex"] != broker.ICON_COLOR["claude"]
     header = next(t for _, t, *_ in fake.sent if "proj" in t)
     assert "바로 전달됩니다" in header  # can_inject even with no socket recorded
 

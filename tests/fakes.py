@@ -7,6 +7,7 @@ class FakeTelegram:
     def __init__(self, *args, **kwargs) -> None:
         self.sent: list[tuple[int, str, int | None, str | None]] = []
         self.created: list[tuple[int, str]] = []
+        self.icon_colors: list[int | None] = []
         self.edited: list[tuple[int, int, str]] = []
         self.deleted: list[tuple[int, int]] = []
         self._next_thread = 100
@@ -23,9 +24,10 @@ class FakeTelegram:
         self.sent.append((chat_id, text, message_thread_id, parse_mode))
         return {"message_id": len(self.sent)}
 
-    def create_forum_topic(self, chat_id: int, name: str) -> int:
+    def create_forum_topic(self, chat_id: int, name: str, *, icon_color: int | None = None) -> int:
         self._next_thread += 1
         self.created.append((chat_id, name))
+        self.icon_colors.append(icon_color)
         return self._next_thread
 
     def edit_forum_topic(self, chat_id: int, message_thread_id: int, name: str) -> bool:

@@ -97,8 +97,10 @@ class Telegram:
 
     # --- forum topics --------------------------------------------------
 
-    def create_forum_topic(self, chat_id: int, name: str) -> int:
-        res = self._call("createForumTopic", chat_id=chat_id, name=name[:128])
+    def create_forum_topic(self, chat_id: int, name: str, *, icon_color: int | None = None) -> int:
+        res = self._call(
+            "createForumTopic", chat_id=chat_id, name=name[:128], icon_color=icon_color
+        )
         return int(res["message_thread_id"])
 
     def edit_forum_topic(self, chat_id: int, message_thread_id: int, name: str) -> bool:

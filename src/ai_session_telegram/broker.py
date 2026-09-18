@@ -40,6 +40,11 @@ log = logging.getLogger("bridge.broker")
 POLL_TIMEOUT = 10
 SPECIAL = {"/status", "/sessions", "/help", "/exit", "/title"}
 
+# Telegram's fixed set of forum-topic icon colors (createForumTopic's
+# icon_color). Kept distinct per agent kind so topics are tellable apart in
+# the topic list even after the name gets overwritten by an ai_title/`/title`.
+ICON_COLOR = {"claude": 7322096, "codex": 9367192}  # blue, green
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -249,7 +254,9 @@ class Broker:
             kind = req.get("kind", "claude")
             initial = f"{'[codex] ' if kind == 'codex' else ''}{base} …"
             try:
-                thread_id = self.tg.create_forum_topic(self.cfg.chat_id, initial)
+                thread_id = self.tg.create_forum_topic(
+                    self.cfg.chat_id, initial, icon_color=ICON_COLOR.get(kind)
+                )
             except TelegramError as e:
                 log.error("createForumTopic failed for %s: %s", sid, e)
                 send_with_retry(

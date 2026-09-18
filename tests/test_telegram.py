@@ -57,6 +57,30 @@ def test_create_forum_topic_truncates_long_names_and_returns_thread_id():
     assert tg.create_forum_topic(-1, "x" * 500) == 99
 
 
+def test_create_forum_topic_passes_icon_color_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"ok": True, "result": {"message_thread_id": 1}})
+
+    tg = _client(handler)
+    tg.create_forum_topic(-1, "name", icon_color=7322096)
+    assert seen["body"]["icon_color"] == 7322096
+
+
+def test_create_forum_topic_omits_icon_color_when_unset():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"ok": True, "result": {"message_thread_id": 1}})
+
+    tg = _client(handler)
+    tg.create_forum_topic(-1, "name")
+    assert "icon_color" not in seen["body"]
+
+
 def test_error_response_raises_telegram_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"ok": False, "error_code": 400, "description": "bad"})

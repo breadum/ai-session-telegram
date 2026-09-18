@@ -64,7 +64,9 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
 4. **File-queue contract between hook and broker:**
    - `register/<sid>.json` — session_start → broker makes/refreshes a topic.
      Carries `"kind": "claude" | "codex"`; the broker copies it onto the
-     session record and it's `kind` that drives every fork below.
+     session record and it's `kind` that drives every fork below, including
+     the topic's icon color (`broker.ICON_COLOR`) — the only cue that survives
+     once an `ai_title`/`/title` overwrites the `[codex] ` prefix in the name.
    - `sessions/<sid>.json` — broker's record (kind, label, thread_id, socket,
      token, status, titled)
    - `outbox/<sid>/<ts>.json` — `{"role": "user"|"assistant"|"note"|"event", "text": ...}`,
