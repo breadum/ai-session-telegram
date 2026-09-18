@@ -265,7 +265,7 @@ def cmd_prune(*, all_sessions: bool, assume_yes: bool) -> None:
 
 
 # --------------------------------------------------------------------------
-# hook install (delegates to scripts/install_hooks.py logic)
+# hook install
 # --------------------------------------------------------------------------
 
 

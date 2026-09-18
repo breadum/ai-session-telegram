@@ -41,4 +41,4 @@ loginctl enable-linger "$USER" 2>/dev/null || \
 echo
 systemctl --user --no-pager status "$UNIT" | head -6
 echo
-echo "logs:  journalctl --user -u $UNIT -f     (or: bridge logs -f)"
+echo "logs:  journalctl --user -u $UNIT -f     (or: cd $REPO_DIR && uv run bridge logs -f)"

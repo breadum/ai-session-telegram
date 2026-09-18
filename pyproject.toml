@@ -13,6 +13,9 @@ dependencies = [
     "httpx>=0.28.1",
 ]
 
+[project.urls]
+repository = "https://github.com/breadum/ai-session-telegram"
+
 [project.scripts]
 bridge = "ai_session_telegram.cli:main"
 
