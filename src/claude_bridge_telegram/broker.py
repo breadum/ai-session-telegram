@@ -232,6 +232,11 @@ class Broker:
                     if req.get(k) and req.get(k) != existing.get(k):
                         existing[k] = req[k]
                         changed = True
+                if "kind" not in existing and req.get("kind"):
+                    # backfills records made before kind existed (or a Claude
+                    # session's, which still doesn't send one — stays "claude").
+                    existing["kind"] = req["kind"]
+                    changed = True
                 if changed:
                     _write_session(sid, existing)
                     log.info("refreshed messaging socket for %s", existing.get("label", sid))

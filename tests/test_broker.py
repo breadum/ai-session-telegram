@@ -291,6 +291,23 @@ def test_codex_failed_injection_is_queued_for_retry(monkeypatch):
     assert paths.inbox_file("cx1").read_text().strip() == ""
 
 
+def test_registration_backfills_kind_on_legacy_record(monkeypatch):
+    # A record written before "kind" existed (or by a broker that predates this
+    # session's install) must not get stuck defaulting to "claude" forever.
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    rec = json.loads(paths.session_file("cx1").read_text())
+    del rec["kind"]
+    paths.session_file("cx1").write_text(json.dumps(rec))
+
+    _register_codex()  # SessionStart fires again (resume), still says kind: codex
+    b._process_registrations()
+
+    assert json.loads(paths.session_file("cx1").read_text())["kind"] == "codex"
+    assert len(fake.created) == 1  # no second topic
+
+
 def test_codex_status_shows_queue_delivery_not_socket(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register_codex()
