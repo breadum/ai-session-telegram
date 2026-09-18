@@ -1,7 +1,7 @@
 [project]
-name = "claude-bridge-telegram"
+name = "ai-session-telegram"
 version = "0.1.0"
-description = "Bridge Claude Code sessions to Telegram forum topics: stream responses out, inject commands back in."
+description = "Bridge Claude Code / Codex CLI sessions to Telegram forum topics: stream responses out, inject commands back in."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bridge = "claude_bridge_telegram.cli:main"
+bridge = "ai_session_telegram.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.11,<0.13.0"]

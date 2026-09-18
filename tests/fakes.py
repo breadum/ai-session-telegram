@@ -57,8 +57,8 @@ class FakeTelegram:
 
 def install(monkeypatch, cfg_token: str = "tok", chat_id: int = -1001):
     """Patch broker.Telegram + send_with_retry, return (Broker, fake)."""
-    from claude_bridge_telegram import broker
-    from claude_bridge_telegram.config import Config
+    from ai_session_telegram import broker
+    from ai_session_telegram.config import Config
 
     fake = FakeTelegram()
     monkeypatch.setattr(broker, "Telegram", lambda *a, **k: fake)

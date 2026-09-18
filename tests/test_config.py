@@ -6,7 +6,7 @@ import stat
 
 import pytest
 
-from claude_bridge_telegram.config import Config
+from ai_session_telegram.config import Config
 
 
 def test_defaults():
@@ -29,7 +29,7 @@ def test_env_overrides(monkeypatch):
 def test_save_roundtrip_and_perms(bridge_home):
     c = Config(bot_token="s3cr3t", chat_id=-100123)
     c.save()
-    from claude_bridge_telegram.config import CONFIG_FILE
+    from ai_session_telegram.config import CONFIG_FILE
 
     assert CONFIG_FILE.exists()
     mode = stat.S_IMODE(CONFIG_FILE.stat().st_mode)

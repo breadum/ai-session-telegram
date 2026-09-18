@@ -4,13 +4,13 @@
 #   ./service/install.sh
 #
 # The repo may live anywhere: this script derives every path from its own
-# location and renders service/claude-bridge-telegram.service.in into a concrete
+# location and renders service/ai-session-telegram.service.in into a concrete
 # unit file. Idempotent — re-run it after editing the template or moving/renaming
 # the repo (a move also needs `bridge install-hooks` again).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UNIT="claude-bridge-telegram.service"
+UNIT="ai-session-telegram.service"
 TEMPLATE="$REPO_DIR/service/$UNIT.in"
 DEST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 BRIDGE_BIN="$REPO_DIR/.venv/bin/bridge"

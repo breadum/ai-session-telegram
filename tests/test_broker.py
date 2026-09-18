@@ -6,7 +6,7 @@ import json
 
 import fakes
 
-from claude_bridge_telegram import broker, paths
+from ai_session_telegram import broker, paths
 
 
 def _register(sid="s1", socket="/run/cc-socks/9.sock", token="tok9"):

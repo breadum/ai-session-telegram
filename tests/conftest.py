@@ -1,7 +1,7 @@
 """Test setup: isolate every test from the real ~/.claude/bridge.
 
 This file runs before any test module is imported, so setting
-CLAUDE_TG_BRIDGE_HOME here means `claude_bridge_telegram.paths` and the hook
+CLAUDE_TG_BRIDGE_HOME here means `ai_session_telegram.paths` and the hook
 scripts resolve their ROOT to a throwaway directory.
 """
 
@@ -30,7 +30,7 @@ def pytest_unconfigure(config):
 @pytest.fixture(autouse=True)
 def bridge_home() -> Path:
     """A clean ~/.claude/bridge for every test."""
-    from claude_bridge_telegram import paths
+    from ai_session_telegram import paths
 
     for child in _TMP_HOME.iterdir():
         shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
