@@ -70,7 +70,7 @@ uv sync
 그다음 세 가지를 등록한다.
 
 ```bash
-uv run bridge setup           # 봇 토큰을 물어보고 ~/.claude/bridge/config.json에 저장한다
+uv run bridge setup           # 봇 토큰을 물어보고 ~/.ai-session-telegram/config.json에 저장한다
 uv run bridge install-hooks   # Claude Code 훅을 ~/.claude/settings.json에 추가한다 (원본은 자동 백업)
 ./service/install.sh          # 브로커를 systemd --user 서비스로 올려 상시 실행한다
 ```
@@ -95,7 +95,8 @@ Codex는 새로 추가된 훅을 처음 한 번은 신뢰해야 실행한다. `c
 > 서비스로 올리지 않고 잠깐만 써 볼 때는 `uv run bridge start` / `stop`을 쓴다.
 > 저장소를 다른 경로로 옮겼다면 옛 위치에서 `bridge uninstall-hooks`를 한 뒤,
 > 새 위치에서 `uv sync && uv run bridge install-hooks && ./service/install.sh`를
-> 다시 실행한다.
+> 다시 실행한다 (Codex 훅도 등록해뒀다면 `install-hooks`/`uninstall-hooks`에
+> `--agent codex`나 `--agent all`을 붙여야 한다 — 기본값은 `claude`뿐이다).
 
 ### 3. 첫 세션
 
@@ -136,7 +137,7 @@ Codex는 `codex --dangerously-bypass-approvals-and-sandbox`(또는 `-a never`처
 
 ## 설정
 
-`bridge setup`이 만드는 `~/.claude/bridge/config.json`:
+`bridge setup`이 만드는 `~/.ai-session-telegram/config.json`:
 
 | 키 | 기본값 | 뜻 |
 |---|---|---|
@@ -144,8 +145,8 @@ Codex는 `codex --dangerously-bypass-approvals-and-sandbox`(또는 `-a never`처
 | `chat_id` | – | 슈퍼그룹 ID |
 | `delete_topic_on_end` | `false` | 터미널에서 세션이 끝날 때 토픽도 지울지 |
 
-환경 변수 `CLAUDE_TG_BOT_TOKEN`, `CLAUDE_TG_CHAT_ID`,
-`CLAUDE_TG_DELETE_TOPIC_ON_END`로 덮어쓸 수 있다.
+환경 변수 `AI_TG_BOT_TOKEN`, `AI_TG_CHAT_ID`,
+`AI_TG_DELETE_TOPIC_ON_END`로 덮어쓸 수 있다.
 
 ## 브로커 관리
 
@@ -196,7 +197,7 @@ journalctl --user -u ai-session-telegram.service -f
 
 ## 작동 방식
 
-훅은 세션 이벤트마다 `~/.claude/bridge/` 아래에 파일 하나를 쓰고 바로 끝난다.
+훅은 세션 이벤트마다 `~/.ai-session-telegram/` 아래에 파일 하나를 쓰고 바로 끝난다.
 표준 라이브러리만 쓰고 블로킹하지 않는다.
 
 브로커는 텔레그램과 이야기하는 유일한 프로세스다. 토픽을 만들고 응답을
@@ -243,11 +244,11 @@ Claude와 달리 Codex는 주입된 메시지를 타이핑한 것과 구분할 �
 그 세션이 `bridge install-hooks` 전에 시작됐다. 세션을 새로 연다.
 
 **`broker already running`인데 진짜 죽어있다**
-죽은 pidfile이 남은 것이다. `~/.claude/bridge/state/broker.pid`를 확인하고
+죽은 pidfile이 남은 것이다. `~/.ai-session-telegram/state/broker.pid`를 확인하고
 실제로 안 돌고 있으면 지운다.
 
 **이 저장소를 여러 위치에 체크아웃해뒀다**
-`~/.claude/bridge`는 체크아웃 경로와 무관하게 공유되는 전역 상태 디렉터리라,
+`~/.ai-session-telegram`는 체크아웃 경로와 무관하게 공유되는 전역 상태 디렉터리라,
 브로커는 **어느 체크아웃에서 먼저 떴든 딱 하나만** 살아있어야 한다 (아니면
 `getUpdates` offset을 두 프로세스가 다투게 된다). `ps aux | grep ai_session_telegram.broker`로
 여러 개 떠 있는지 확인하고, systemd가 관리하지 않는 쪽은 정지시킨다.

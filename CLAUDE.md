@@ -106,7 +106,7 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
 
 ## Secrets
 
-- The Telegram bot token lives **only** in `~/.claude/bridge/config.json`
+- The Telegram bot token lives **only** in `~/.ai-session-telegram/config.json`
   (chmod 600), written by `bridge setup`. It is never in the repo.
 - `messaging_token` is a per-session Claude Code secret. It is written into
   `sessions/` / `register/` (runtime dir, git-ignored). Never log it, never
@@ -125,7 +125,7 @@ uv run pytest
 - Line length 100, target py312, `from __future__ import annotations` at the top
   of every module.
 - Tests must not hit the network or the real `~/.claude`. `tests/conftest.py`
-  points `CLAUDE_TG_BRIDGE_HOME` at a temp dir before collection; use
+  points `AI_TG_BRIDGE_HOME` at a temp dir before collection; use
   `tests/fakes.py::FakeTelegram` and a stubbed `broker.inject_user_message`.
 - Hooks are exercised as real subprocesses (`tests/test_hooks.py`, both the
   Claude and `codex_*` ones) — that is how each agent actually runs them, so
@@ -149,7 +149,7 @@ live anywhere. After moving the repo: `uv sync`, `bridge install-hooks`
 `./service/install.sh` again.
 
 Only one broker may run at a time, machine-wide — it's a single-instance lock
-on `~/.claude/bridge/state/broker.pid`, and that runtime dir is shared across
+on `~/.ai-session-telegram/state/broker.pid`, and that runtime dir is shared across
 *every* checkout of this repo regardless of path (see `paths.py`). Cloning or
 worktree-ing the repo a second place and running `bridge start`/the service
 there races the first one for that lock; whichever loses silently no-ops

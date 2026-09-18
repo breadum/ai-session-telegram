@@ -25,8 +25,8 @@ from pathlib import Path
 # --------------------------------------------------------------------------
 
 def root() -> Path:
-    env = os.environ.get("CLAUDE_TG_BRIDGE_HOME")
-    return Path(env).expanduser() if env else Path.home() / ".claude" / "bridge"
+    env = os.environ.get("AI_TG_BRIDGE_HOME")
+    return Path(env).expanduser() if env else Path.home() / ".ai-session-telegram"
 
 
 ROOT = root()

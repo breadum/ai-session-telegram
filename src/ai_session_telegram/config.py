@@ -1,8 +1,8 @@
 """Bridge configuration.
 
 Written by `bridge setup` to <ROOT>/config.json. Env vars override individual
-fields (handy for testing): CLAUDE_TG_BOT_TOKEN, CLAUDE_TG_CHAT_ID,
-CLAUDE_TG_DELETE_TOPIC_ON_END.
+fields (handy for testing): AI_TG_BOT_TOKEN, AI_TG_CHAT_ID,
+AI_TG_DELETE_TOPIC_ON_END.
 """
 
 from __future__ import annotations
@@ -33,11 +33,11 @@ class Config:
             data = json.loads(CONFIG_FILE.read_text())
         cfg = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
-        if v := os.environ.get("CLAUDE_TG_BOT_TOKEN"):
+        if v := os.environ.get("AI_TG_BOT_TOKEN"):
             cfg.bot_token = v
-        if v := os.environ.get("CLAUDE_TG_CHAT_ID"):
+        if v := os.environ.get("AI_TG_CHAT_ID"):
             cfg.chat_id = int(v)
-        if v := os.environ.get("CLAUDE_TG_DELETE_TOPIC_ON_END"):
+        if v := os.environ.get("AI_TG_DELETE_TOPIC_ON_END"):
             cfg.delete_topic_on_end = v.lower() in ("1", "true", "yes")
         return cfg
 

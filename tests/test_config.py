@@ -17,9 +17,9 @@ def test_defaults():
 
 
 def test_env_overrides(monkeypatch):
-    monkeypatch.setenv("CLAUDE_TG_BOT_TOKEN", "abc123")
-    monkeypatch.setenv("CLAUDE_TG_CHAT_ID", "-1009999")
-    monkeypatch.setenv("CLAUDE_TG_DELETE_TOPIC_ON_END", "true")
+    monkeypatch.setenv("AI_TG_BOT_TOKEN", "abc123")
+    monkeypatch.setenv("AI_TG_CHAT_ID", "-1009999")
+    monkeypatch.setenv("AI_TG_DELETE_TOPIC_ON_END", "true")
     c = Config.load()
     assert c.bot_token == "abc123"
     assert c.chat_id == -1009999

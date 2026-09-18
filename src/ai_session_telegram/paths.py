@@ -1,6 +1,6 @@
 """Runtime directory layout for the bridge.
 
-All mutable state lives under ~/.claude/bridge (override with CLAUDE_TG_BRIDGE_HOME),
+All mutable state lives under ~/.ai-session-telegram (override with AI_TG_BRIDGE_HOME),
 kept separate from the code checkout so the daemon and hooks share one location.
 """
 
@@ -11,10 +11,10 @@ from pathlib import Path
 
 
 def _root() -> Path:
-    env = os.environ.get("CLAUDE_TG_BRIDGE_HOME")
+    env = os.environ.get("AI_TG_BRIDGE_HOME")
     if env:
         return Path(env).expanduser()
-    return Path.home() / ".claude" / "bridge"
+    return Path.home() / ".ai-session-telegram"
 
 
 ROOT = _root()
