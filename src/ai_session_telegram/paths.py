@@ -23,6 +23,8 @@ STATE = ROOT / "state"
 OFFSET_FILE = STATE / "offset"
 PID_FILE = STATE / "broker.pid"
 LOG_FILE = STATE / "broker.log"
+STOP_FLAG = STATE / "stop"        # touched by `bridge stop` on Windows, where a
+                                   # signal can't ask the broker to shut down gracefully
 
 REGISTER = ROOT / "register"      # session_start drops <sid>.json here
 SESSIONS = ROOT / "sessions"      # broker writes <sid>.json (label, thread_id, socket, ...)

@@ -97,3 +97,85 @@ def test_prune_reports_nothing_to_do(bridge_home, monkeypatch, capsys):
 
     assert "nothing to prune" in capsys.readouterr().out
     assert paths.session_file("active-sid").exists()
+
+
+# --------------------------------------------------------------------------
+# Windows process-management branches
+# --------------------------------------------------------------------------
+
+
+def test_logs_prints_last_80_lines_without_external_tail(bridge_home, capsys):
+    paths.LOG_FILE.write_text("".join(f"line {i}\n" for i in range(100)))
+    cli.cmd_logs(follow=False)
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 80
+    assert out[0] == "line 20"
+    assert out[-1] == "line 99"
+
+
+def test_logs_missing_file_is_a_noop(bridge_home, capsys):
+    cli.cmd_logs(follow=False)
+    assert "no log yet" in capsys.readouterr().out
+
+
+def test_alive_windows_checks_tasklist_output(monkeypatch):
+    monkeypatch.setattr(cli.os, "name", "nt")
+
+    class _Result:
+        stdout = "python.exe   4242 Console  1   12,345 K"
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: _Result())
+    assert cli._alive(4242) is True
+
+    class _EmptyResult:
+        stdout = "INFO: No tasks matching the given criteria.\n"
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: _EmptyResult())
+    assert cli._alive(4242) is False
+
+
+def test_windows_start_uses_creationflags_not_start_new_session(monkeypatch, bridge_home):
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(Config, "load", staticmethod(lambda: Config(bot_token="t", chat_id=-1)))
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+    captured = {}
+
+    class _FakeProc:
+        pid = 999
+
+        def poll(self):
+            return None
+
+    def fake_popen(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeProc()
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    cli.cmd_start()
+
+    assert "creationflags" in captured
+    assert "start_new_session" not in captured
+
+
+def test_windows_stop_touches_flag_and_waits_for_alive_to_clear(monkeypatch, bridge_home):
+    monkeypatch.setattr(cli.os, "name", "nt")
+    paths.PID_FILE.write_text("4242")
+    monkeypatch.setattr(cli, "_alive", lambda pid: not paths.STOP_FLAG.exists())
+
+    assert cli.cmd_stop(quiet=True) is True
+    assert not paths.STOP_FLAG.exists()
+
+
+def test_windows_stop_force_kills_via_sigterm_after_timeout(monkeypatch, bridge_home):
+    monkeypatch.setattr(cli.os, "name", "nt")
+    paths.PID_FILE.write_text("4242")
+    monkeypatch.setattr(cli, "_alive", lambda pid: True)  # never reports stopped
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+    killed = []
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    cli.cmd_stop(quiet=True)
+
+    assert killed == [(4242, cli.signal.SIGTERM)]

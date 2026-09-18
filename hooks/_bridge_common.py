@@ -1,9 +1,10 @@
 """Shared helpers for the bridge hooks.
 
 STDLIB ONLY. These scripts run from ~/.claude/settings.json with the system
-python3 on every SessionStart / UserPromptSubmit / Stop / SessionEnd /
-Notification, so they must start fast and never import the project package or
-third-party libs.
+Python (python3, or `py -3` on Windows — see hookinstall._command_for) on
+every SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification, so
+they must start fast and never import the project package or third-party
+libs.
 
 Every hook is non-blocking: it writes a small file under paths.ROOT and exits.
 The broker does everything else (topics, Telegram, injecting commands back into
@@ -12,13 +13,17 @@ the session over its [uds-messaging] socket).
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import secrets
 import sys
 import time
 from pathlib import Path
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 # --------------------------------------------------------------------------
 # paths (mirror of ai_session_telegram.paths, kept standalone on purpose)
@@ -93,7 +98,10 @@ def consume_pending_injection(sid: str, prompt: str) -> bool:
     if not f.exists():
         return False
     with open(f, "a+") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        if os.name == "nt":
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(fh, fcntl.LOCK_EX)
         fh.seek(0)
         try:
             items = json.loads(fh.read() or "[]")

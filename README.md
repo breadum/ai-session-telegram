@@ -79,8 +79,19 @@ uv sync
 ```bash
 uv run bridge setup           # 봇 토큰을 물어보고 ~/.ai-session-telegram/config.json에 저장한다
 uv run bridge install-hooks   # Claude Code 훅을 ~/.claude/settings.json에 추가한다 (원본은 자동 백업)
-./service/install.sh          # 브로커를 systemd --user 서비스로 올려 상시 실행한다
 ```
+
+세 번째(브로커를 상시 실행 서비스로 올리기)는 OS마다 다르다.
+
+```bash
+./service/install.sh          # Linux: systemd --user 서비스로 등록
+uv run bridge install-service # macOS: launchd 유저 에이전트로 등록 (~/Library/LaunchAgents)
+uv run bridge install-service # Windows: 작업 스케줄러에 로그온 트리거로 등록
+```
+
+> Windows는 이 저장소에서 실제 Windows 머신으로 검증된 적은 없다 (개발·테스트가 전부
+> Linux에서 이뤄짐). `install-service`는 등록과 동시에 한 번 바로 실행도 시키지만, 문제가
+> 있으면 [CLAUDE.md](CLAUDE.md)의 "Running as a service"를 참고하거나 이슈로 알려달라.
 
 Codex CLI 세션도 같은 그룹에 붙이려면 훅을 하나 더 등록한다 (`--agent all`이면 둘 다).
 
@@ -99,9 +110,10 @@ Codex는 새로 추가된 훅을 처음 한 번은 신뢰해야 실행한다. `c
 "crossSessionInbound": "accept"
 ```
 
-> 서비스로 올리지 않고 잠깐만 써 볼 때는 `uv run bridge start` / `stop`을 쓴다.
-> 저장소를 다른 경로로 옮겼다면 옛 위치에서 `bridge uninstall-hooks`를 한 뒤,
-> 새 위치에서 `uv sync && uv run bridge install-hooks && ./service/install.sh`를
+> 서비스로 올리지 않고 잠깐만 써 볼 때는 `uv run bridge start` / `stop`을 쓴다 (macOS에서도 됨).
+> 저장소를 다른 경로로 옮겼다면 옛 위치에서 `bridge uninstall-hooks`를 한 뒤 (macOS는
+> 서비스도 `bridge uninstall-service`로 먼저 내린다), 새 위치에서 `uv sync && uv run
+> bridge install-hooks && ./service/install.sh`(macOS는 `bridge install-service`)를
 > 다시 실행한다 (Codex 훅도 등록해뒀다면 `install-hooks`/`uninstall-hooks`에
 > `--agent codex`나 `--agent all`을 붙여야 한다 — 기본값은 `claude`뿐이다).
 
@@ -163,12 +175,20 @@ uv run bridge logs -f     # 로그
 uv run bridge prune       # 끝난 세션 정리
 ```
 
-서비스로 돌리는 중이면 `start` / `stop` 대신 systemd를 쓴다.
+서비스로 돌리는 중이면 `start` / `stop` 대신 systemd(Linux) / launchd(macOS) /
+작업 스케줄러(Windows)를 쓴다.
 
 ```bash
-systemctl --user restart ai-session-telegram.service   # 브로커 코드를 고친 뒤
+systemctl --user restart ai-session-telegram.service   # Linux: 브로커 코드를 고친 뒤
 journalctl --user -u ai-session-telegram.service -f
-./service/uninstall.sh                                 # 서비스만 제거
+./service/uninstall.sh                                 # Linux: 서비스만 제거
+
+launchctl kickstart -k gui/$(id -u)/ai-session-telegram # macOS: 브로커 코드를 고친 뒤
+uv run bridge logs -f                                   # macOS/Windows: 로그는 이걸로
+uv run bridge uninstall-service                         # macOS/Windows: 서비스만 제거
+
+schtasks /End /TN ai-session-telegram                   # Windows: 브로커 코드를 고친 뒤
+schtasks /Run /TN ai-session-telegram
 ```
 
 훅은 매번 새로 읽히니 훅만 고쳤을 때는 재시작하지 않아도 된다.

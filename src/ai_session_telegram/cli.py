@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 
 from . import paths
+from ._procutil import is_alive as _alive
 from .config import Config
 from .telegram import Telegram, TelegramError
 
@@ -40,6 +43,8 @@ def main(argv: list[str] | None = None) -> None:
         "--agent", choices=("claude", "codex", "all"), default="claude",
         help="which agent's hooks to remove (default: claude)",
     )
+    sub.add_parser("install-service", help="install the broker as a macOS launchd user agent")
+    sub.add_parser("uninstall-service", help="remove the macOS launchd user agent")
     p_prune = sub.add_parser(
         "prune", help="delete Telegram topics + local state for ended (or all) sessions"
     )
@@ -57,6 +62,8 @@ def main(argv: list[str] | None = None) -> None:
         "logs": lambda: cmd_logs(args.follow),
         "install-hooks": lambda: cmd_install_hooks(args.agent),
         "uninstall-hooks": lambda: cmd_uninstall_hooks(args.agent),
+        "install-service": cmd_install_service,
+        "uninstall-service": cmd_uninstall_service,
         "prune": lambda: cmd_prune(all_sessions=args.all, assume_yes=args.yes),
     }[args.cmd]()
 
@@ -153,12 +160,23 @@ def cmd_start() -> None:
         return
     paths.ensure_dirs()
     logf = open(paths.LOG_FILE, "a")
+    detach_kwargs = (
+        # getattr'd rather than referenced directly: these constants only exist
+        # in the subprocess module on Windows, so a direct reference would raise
+        # AttributeError even on other platforms just by being evaluated.
+        {
+            "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        }
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
     proc = subprocess.Popen(
         [sys.executable, "-m", "ai_session_telegram.broker"],
         stdout=logf,
         stderr=logf,
         stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        **detach_kwargs,
     )
     time.sleep(1.0)
     if proc.poll() is not None:
@@ -172,20 +190,31 @@ def cmd_stop(quiet: bool = False) -> bool:
         if not quiet:
             print("broker not running")
         return True
-    os.kill(pid, 15)
+    if os.name == "nt":
+        # os.kill's SIGTERM is an immediate TerminateProcess on Windows — no
+        # signal is delivered for the broker to catch, so ask via a flag file
+        # it polls instead (see broker.Broker.run).
+        paths.STOP_FLAG.touch()
+    else:
+        os.kill(pid, 15)
     # the loop can be parked in a getUpdates long-poll; give it room to unwind
     for _ in range(200):
         if not _alive(pid):
+            paths.STOP_FLAG.unlink(missing_ok=True)
             if not quiet:
                 print("broker stopped")
             return True
         time.sleep(0.1)
-    print(f"broker still alive (pid {pid}) after SIGTERM; sending SIGKILL")
-    try:
-        os.kill(pid, 9)
-    except ProcessLookupError:
-        pass
+    print(f"broker still alive (pid {pid}) after stop request; force-killing")
+    if os.name == "nt":
+        os.kill(pid, signal.SIGTERM)  # TerminateProcess — the only option here
+    else:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
     paths.PID_FILE.unlink(missing_ok=True)
+    paths.STOP_FLAG.unlink(missing_ok=True)
     return True
 
 
@@ -223,7 +252,17 @@ def cmd_logs(follow: bool) -> None:
     if not paths.LOG_FILE.exists():
         print("no log yet")
         return
-    os.execvp("tail", ["tail", "-n", "80"] + (["-f"] if follow else []) + [str(paths.LOG_FILE)])
+    with paths.LOG_FILE.open("r", errors="replace") as f:
+        for line in collections.deque(f, maxlen=80):
+            print(line, end="")
+        if not follow:
+            return
+        while True:
+            line = f.readline()
+            if line:
+                print(line, end="")
+            else:
+                time.sleep(0.5)
 
 
 def cmd_prune(*, all_sessions: bool, assume_yes: bool) -> None:
@@ -287,6 +326,18 @@ def cmd_uninstall_hooks(agent: str) -> None:
         hookinstall.uninstall_codex()
 
 
+def cmd_install_service() -> None:
+    from . import serviceinstall
+
+    serviceinstall.install()
+
+
+def cmd_uninstall_service() -> None:
+    from . import serviceinstall
+
+    serviceinstall.uninstall()
+
+
 # --------------------------------------------------------------------------
 
 
@@ -297,16 +348,6 @@ def _broker_pid() -> int | None:
     if txt.isdigit() and _alive(int(txt)):
         return int(txt)
     return None
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 if __name__ == "__main__":

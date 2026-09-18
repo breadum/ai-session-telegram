@@ -16,7 +16,6 @@ hook at all — the broker connects to $CLAUDE_CODE_MESSAGING_SOCKET directly.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import logging
 import os
@@ -27,6 +26,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import paths
+from ._procutil import is_alive as _alive
+from ._procutil import locked as _file_locked
 from .claude_inject import InjectError, inject_user_message
 from .codex_inject import CodexInjectError, inject_codex_message
 from .config import Config
@@ -85,12 +86,8 @@ def _sid_for_thread(thread_id: int) -> str | None:
 def _locked(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_name(path.name + ".lock")
-    with open(lock, "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+    with open(lock, "w") as fh, _file_locked(fh):
+        yield
 
 
 def _inbox_append(sid: str, text: str) -> None:
@@ -169,11 +166,12 @@ class Broker:
 
     def run(self) -> None:
         paths.ensure_dirs()
+        paths.STOP_FLAG.unlink(missing_ok=True)  # stale flag from a prior run
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
         self._init_offset()
         log.info("broker up (chat_id=%s, offset=%s)", self.cfg.chat_id, self._offset)
-        while self._running:
+        while self._running and not paths.STOP_FLAG.exists():
             try:
                 self._process_registrations()
                 self._process_outbox()   # mirror prompts/responses to topics
@@ -605,14 +603,6 @@ def main(foreground: bool = True) -> None:
         Broker(Config.load()).run()
     finally:
         paths.PID_FILE.unlink(missing_ok=True)
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        return isinstance(sys.exc_info()[1], PermissionError)
-    return True
 
 
 if __name__ == "__main__":

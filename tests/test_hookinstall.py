@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import platform
 
 from ai_session_telegram import hookinstall
 
@@ -98,3 +99,17 @@ def test_codex_install_uses_codex_hooks_and_file(monkeypatch, tmp_path):
 
     hookinstall.uninstall_codex()
     assert json.loads(codex.read_text()).get("hooks", {}) == {}
+
+
+def test_command_for_uses_python3_by_default(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    cmd = hookinstall._command_for("stop.py")
+    assert cmd.startswith("python3 ")
+    assert cmd.endswith("stop.py")
+
+
+def test_command_for_uses_py_launcher_on_windows(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    cmd = hookinstall._command_for("stop.py")
+    assert cmd.startswith('py -3 "')
+    assert cmd.endswith('stop.py"')

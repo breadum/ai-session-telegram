@@ -150,6 +150,56 @@ live anywhere. After moving the repo: `uv sync`, `bridge install-hooks`
 (add `--agent codex` or `--agent all` if Codex sessions are in use too),
 `./service/install.sh` again.
 
+Neither macOS nor Windows has systemd; `src/ai_session_telegram/serviceinstall.py`
+dispatches on `platform.system()` to the right analog for `bridge install-service` /
+`bridge uninstall-service`: launchd on macOS (plist built directly with `plistlib`,
+no template file), Task Scheduler on Windows (`schtasks`, logon trigger). Linux
+still refuses here and points at `./service/install.sh` — no reason to
+reimplement something that already works.
+
+Getting Windows this far required fixing several POSIX-only assumptions that
+predate this file, since a "no service" platform is moot if the broker can't
+even run there:
+- `broker.py`, `codex_inject.py`, and `hooks/_bridge_common.py` each imported
+  `fcntl` unconditionally at module scope (doesn't exist on Windows). This
+  mattered for the hook file specifically because it's a separate,
+  deliberately standalone module (see item 1 below) — fixing `broker.py`
+  alone would still leave every hook crashing on Windows before it got
+  anywhere near the broker.
+- `_alive()` (duplicated in `broker.py` and `cli.py`) used `os.kill(pid, 0)`
+  as a liveness probe. On Windows, `os.kill` ignores the signal value and
+  always calls `TerminateProcess` — so that probe was **killing the process
+  it was checking**. Windows now shells out to `tasklist` instead.
+- The `fcntl`/`msvcrt` branching and the `os.kill`/`tasklist` branching were
+  each repeated at 2-3 call sites, so both got pulled into one shared
+  `src/ai_session_telegram/_procutil.py` (`is_alive()`, `locked()`) that
+  `broker.py`, `cli.py`, and `codex_inject.py` import instead of branching
+  `os.name` themselves. `hooks/_bridge_common.py` can't use it — hooks must
+  stay standalone stdlib and never `import ai_session_telegram` — so it keeps
+  its own inline branch for the one lock it needs.
+- Windows can't deliver SIGTERM the way `cmd_stop` expects (same
+  `TerminateProcess`-not-a-signal issue), so there's no way for the broker to
+  catch it and shut down gracefully. `cmd_stop` on Windows instead touches
+  `paths.STOP_FLAG`, which `Broker.run()`'s loop polls every cycle; only after
+  that grace period times out does it fall back to `os.kill(pid, SIGTERM)`
+  (= an immediate hard kill there, same as it always was).
+- `hookinstall._command_for` hardcoded `python3 <path>`; Windows Python
+  installs don't reliably put `python3` on PATH, so it now uses `py -3
+  "<path>"` there instead (the official Windows launcher).
+- `cli.cmd_logs` shelled out to `tail`, which Windows doesn't ship. Replaced
+  with a small stdlib-only tail (`collections.deque` for the last N lines,
+  then poll-and-append for `-f`) — this dropped the external-binary
+  dependency on every platform, not just Windows.
+
+None of this has been run on an actual Windows machine — it's implemented
+from documented API behavior only. `tests/test_procutil.py`,
+`tests/test_serviceinstall.py`, `tests/test_cli.py`, and
+`tests/test_hookinstall.py` cover the Windows branches by monkeypatching
+`platform.system`/`os.name` and the relevant subprocess calls, but the
+`msvcrt` branch in `_procutil.locked()` can't be exercised on Linux at all
+(the module doesn't exist there) — CI's `windows-latest` matrix leg is the
+only thing that actually imports it.
+
 Only one broker may run at a time, machine-wide — it's a single-instance lock
 on `~/.ai-session-telegram/state/broker.pid`, and that runtime dir is shared across
 *every* checkout of this repo regardless of path (see `paths.py`). Cloning or

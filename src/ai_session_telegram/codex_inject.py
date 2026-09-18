@@ -19,12 +19,12 @@ consumes to skip re-mirroring its own echo — see _bridge_common.py's
 
 from __future__ import annotations
 
-import fcntl
 import json
 import subprocess
 import time
 
 from . import paths
+from ._procutil import locked
 
 _PENDING_TTL_S = 60  # keep in sync with hooks/_bridge_common.py's reader
 
@@ -36,8 +36,7 @@ class CodexInjectError(Exception):
 def _queue_pending(sid: str, text: str) -> None:
     f = paths.pending_file(sid)
     f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f, "a+") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+    with open(f, "a+") as fh, locked(fh):
         fh.seek(0)
         try:
             items = json.loads(fh.read() or "[]")

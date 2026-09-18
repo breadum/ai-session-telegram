@@ -20,6 +20,7 @@ installer doesn't attempt to pre-compute — see the printed note after install.
 from __future__ import annotations
 
 import json
+import platform
 import shutil
 import time
 from pathlib import Path
@@ -53,9 +54,13 @@ def _hooks_dir() -> Path:
 
 
 def _command_for(script: str) -> str:
-    # hooks are stdlib-only: run with the system python3, not the project venv,
+    # hooks are stdlib-only: run with the system python, not the project venv,
     # so they start fast and don't depend on uv being on PATH.
-    return f"python3 {_hooks_dir() / script}"
+    path = _hooks_dir() / script
+    if platform.system() == "Windows":
+        # python.org's installer puts `py` (the launcher) on PATH, not python3.
+        return f'py -3 "{path}"'
+    return f"python3 {path}"
 
 
 def _load(settings: Path) -> dict:
