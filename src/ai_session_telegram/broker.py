@@ -41,9 +41,12 @@ POLL_TIMEOUT = 10
 SPECIAL = {"/status", "/sessions", "/help", "/exit", "/title"}
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
-# icon_color). Kept distinct per agent kind so topics are tellable apart in
-# the topic list even after the name gets overwritten by an ai_title/`/title`.
-ICON_COLOR = {"claude": 7322096, "codex": 9367192}  # blue, green
+# icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
+# agent kind so topics are tellable apart in the topic list even after the
+# name gets overwritten by an ai_title/`/title`. Chosen as the closest
+# approximation of each agent's own brand color: coral (#FB6F5F) for Claude's
+# orange, pale yellow (#FFD67E) for Codex's white/neutral mark.
+ICON_COLOR = {"claude": 16478047, "codex": 16766590}
 
 
 def _now() -> str:
