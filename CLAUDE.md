@@ -36,7 +36,7 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
 3. **Telegram → session goes over an agent-specific channel**, not a hook.
    - **Claude**: `session_start.py` records `CLAUDE_CODE_MESSAGING_SOCKET` +
      `CLAUDE_CODE_MESSAGING_TOKEN` (inherited from the `claude` parent) into the
-     register file; `inject.py` connects to that `[uds-messaging]` socket, sends
+     register file; `claude_inject.py` connects to that `[uds-messaging]` socket, sends
      an `auth` frame then a `user` frame. This works whether the session is idle
      or mid-turn.
      - The session receives it as a **peer message**, not a first-person user
