@@ -4,7 +4,6 @@ cli.py, and codex_inject.py all import instead of branching os.name themselves.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import platform
 
@@ -39,6 +38,8 @@ def test_is_alive_windows_branch_uses_tasklist(monkeypatch):
 def test_locked_takes_and_releases_an_exclusive_flock(tmp_path, monkeypatch):
     if platform.system() == "Windows":
         return  # fcntl doesn't exist there; the nt branch is covered separately
+    import fcntl  # local: importing this at module scope breaks collection on Windows
+
     calls = []
     real_flock = fcntl.flock
 

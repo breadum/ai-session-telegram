@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
+import tempfile
 import threading
+import uuid
 
 import pytest
 
@@ -46,16 +49,23 @@ class _Server:
         self._t.join(timeout=3)
 
 
-def test_inject_sends_auth_then_user_frame(tmp_path):
-    path = str(tmp_path / "s.sock")
-    srv = _Server(path)
-    inject_user_message(path, "mytoken", "run the tests")
-    srv.join()
-    assert srv.frames[0] == {"type": "auth", "token": "mytoken"}
-    assert srv.frames[1] == {
-        "type": "user",
-        "message": {"role": "user", "content": "run the tests"},
-    }
+def test_inject_sends_auth_then_user_frame():
+    # A short path directly under the OS temp root, not pytest's tmp_path:
+    # AF_UNIX paths are capped at ~104 bytes on macOS, and tmp_path's nested
+    # pytest-of-<user>/pytest-<n>/<test-name>/ routinely blows past that.
+    path = os.path.join(tempfile.gettempdir(), f"ait-{uuid.uuid4().hex[:8]}.sock")
+    try:
+        srv = _Server(path)
+        inject_user_message(path, "mytoken", "run the tests")
+        srv.join()
+        assert srv.frames[0] == {"type": "auth", "token": "mytoken"}
+        assert srv.frames[1] == {
+            "type": "user",
+            "message": {"role": "user", "content": "run the tests"},
+        }
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
 
 
 def test_inject_missing_socket_raises(tmp_path):
