@@ -31,8 +31,10 @@ INBOX = ROOT / "inbox"            # <sid>.jsonl : commands that failed to inject
 OUTBOX = ROOT / "outbox"          # <sid>/<ts>.json : queued outbound messages
 END = ROOT / "end"                # session_end drops <sid>.json here
 BUSY = ROOT / "busy"              # <sid> present : a turn is in progress
+PENDING = ROOT / "pending"        # <sid>.json : texts this bridge just queued into a Codex
+                                   # session, awaiting the UserPromptSubmit echo (see codex_inject.py)
 
-ALL_DIRS = [STATE, REGISTER, SESSIONS, THREADS, INBOX, OUTBOX, END, BUSY]
+ALL_DIRS = [STATE, REGISTER, SESSIONS, THREADS, INBOX, OUTBOX, END, BUSY, PENDING]
 
 
 def ensure_dirs() -> None:
@@ -58,3 +60,7 @@ def thread_file(thread_id: int | str) -> Path:
 
 def busy_file(sid: str) -> Path:
     return BUSY / sid
+
+
+def pending_file(sid: str) -> Path:
+    return PENDING / f"{sid}.json"

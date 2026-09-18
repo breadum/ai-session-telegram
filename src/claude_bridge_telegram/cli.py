@@ -26,8 +26,20 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("status", help="show broker + session status")
     p_logs = sub.add_parser("logs", help="tail the broker log")
     p_logs.add_argument("-f", "--follow", action="store_true")
-    sub.add_parser("install-hooks", help="add bridge hooks to ~/.claude/settings.json")
-    sub.add_parser("uninstall-hooks", help="remove bridge hooks from ~/.claude/settings.json")
+    p_install = sub.add_parser(
+        "install-hooks", help="add bridge hooks to ~/.claude/settings.json and/or ~/.codex/hooks.json"
+    )
+    p_install.add_argument(
+        "--agent", choices=("claude", "codex", "all"), default="claude",
+        help="which agent's hooks to install (default: claude)",
+    )
+    p_uninstall = sub.add_parser(
+        "uninstall-hooks", help="remove bridge hooks from ~/.claude/settings.json and/or ~/.codex/hooks.json"
+    )
+    p_uninstall.add_argument(
+        "--agent", choices=("claude", "codex", "all"), default="claude",
+        help="which agent's hooks to remove (default: claude)",
+    )
     p_prune = sub.add_parser(
         "prune", help="delete Telegram topics + local state for ended (or all) sessions"
     )
@@ -43,8 +55,8 @@ def main(argv: list[str] | None = None) -> None:
         "run": cmd_run,
         "status": cmd_status,
         "logs": lambda: cmd_logs(args.follow),
-        "install-hooks": cmd_install_hooks,
-        "uninstall-hooks": cmd_uninstall_hooks,
+        "install-hooks": lambda: cmd_install_hooks(args.agent),
+        "uninstall-hooks": lambda: cmd_uninstall_hooks(args.agent),
         "prune": lambda: cmd_prune(all_sessions=args.all, assume_yes=args.yes),
     }[args.cmd]()
 
@@ -202,7 +214,7 @@ def cmd_status() -> None:
             continue
         inbox = paths.inbox_file(r["session_id"])
         q = sum(1 for line in inbox.read_text().splitlines() if line.strip()) if inbox.exists() else 0
-        sock = "sock" if r.get("messaging_socket") else "----"
+        sock = "codex" if r.get("kind") == "codex" else ("sock" if r.get("messaging_socket") else "----")
         busy = "busy" if paths.busy_file(r["session_id"]).exists() else "idle"
         print(f"  {r['label']:<24} {r['status']:<8} {busy} {sock} retry={q}  {r['cwd']}")
 
@@ -257,16 +269,22 @@ def cmd_prune(*, all_sessions: bool, assume_yes: bool) -> None:
 # --------------------------------------------------------------------------
 
 
-def cmd_install_hooks() -> None:
-    from .hookinstall import install
+def cmd_install_hooks(agent: str) -> None:
+    from . import hookinstall
 
-    install()
+    if agent in ("claude", "all"):
+        hookinstall.install()
+    if agent in ("codex", "all"):
+        hookinstall.install_codex()
 
 
-def cmd_uninstall_hooks() -> None:
-    from .hookinstall import uninstall
+def cmd_uninstall_hooks(agent: str) -> None:
+    from . import hookinstall
 
-    uninstall()
+    if agent in ("claude", "all"):
+        hookinstall.uninstall()
+    if agent in ("codex", "all"):
+        hookinstall.uninstall_codex()
 
 
 # --------------------------------------------------------------------------
