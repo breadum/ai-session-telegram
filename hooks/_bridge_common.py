@@ -12,6 +12,7 @@ the session over its [uds-messaging] socket).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import secrets
@@ -34,10 +35,11 @@ SESSIONS = ROOT / "sessions"
 OUTBOX = ROOT / "outbox"
 END = ROOT / "end"
 BUSY = ROOT / "busy"          # <sid> present = a turn is in progress
+PENDING = ROOT / "pending"    # <sid>.json = texts the broker just queued into Codex
 
 
 def ensure_dirs() -> None:
-    for d in (REGISTER, SESSIONS, OUTBOX, END, BUSY):
+    for d in (REGISTER, SESSIONS, OUTBOX, END, BUSY, PENDING):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -68,6 +70,47 @@ def queue_outbox(sid: str, role: str, text: str, *, ai_title: str = "") -> None:
     if ai_title:
         item["ai_title"] = ai_title
     (d / name).write_text(json.dumps(item, ensure_ascii=False))
+
+
+# --------------------------------------------------------------------------
+# codex pending-injection tracking
+#
+# Codex CLI has no Claude-style "peer message" wrapper: a message the broker
+# queues via `codex queue` arrives at UserPromptSubmit looking exactly like
+# something the user typed. So codex_user_prompt_submit.py can't pattern-match
+# a preamble like user_prompt_submit.py does for Claude; instead the broker
+# (codex_inject.py) records the exact text it just queued here, and this
+# consumes a matching entry so it isn't mirrored twice.
+# --------------------------------------------------------------------------
+
+_PENDING_TTL_S = 60  # keep in sync with codex_inject.py's writer
+
+
+def consume_pending_injection(sid: str, prompt: str) -> bool:
+    """True and removes the entry if `prompt` matches a message the broker just
+    queued into this Codex session; stale entries are pruned along the way."""
+    f = PENDING / f"{sid}.json"
+    if not f.exists():
+        return False
+    with open(f, "a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        fh.seek(0)
+        try:
+            items = json.loads(fh.read() or "[]")
+        except json.JSONDecodeError:
+            items = []
+        now = time.time()
+        items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
+        found = False
+        for i, it in enumerate(items):
+            if it.get("text") == prompt:
+                items.pop(i)
+                found = True
+                break
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps(items, ensure_ascii=False))
+    return found
 
 
 # --------------------------------------------------------------------------

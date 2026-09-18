@@ -17,6 +17,13 @@ def _register(sid="s1", socket="/run/cc-socks/9.sock", token="tok9"):
     }))
 
 
+def _register_codex(sid="cx1"):
+    paths.ensure_dirs()
+    (paths.REGISTER / f"{sid}.json").write_text(json.dumps({
+        "session_id": sid, "kind": "codex", "label": f"proj-{sid}", "base": "proj", "cwd": "/w/proj",
+    }))
+
+
 def test_registration_creates_topic(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
@@ -235,6 +242,80 @@ def test_outbox_renders_markdown_as_html(monkeypatch):
     assert "<code>code</code>" in text
     assert "&lt;raw&gt;" in text and "<raw>" not in text
     assert "##" not in text and "**" not in text
+
+
+def test_codex_registration_creates_topic_without_a_socket(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+
+    rec = json.loads(paths.session_file("cx1").read_text())
+    assert rec["kind"] == "codex"
+    assert rec["thread_id"] == 101
+    assert fake.created == [(-1001, "[codex] proj …")]
+    header = next(t for _, t, *_ in fake.sent if "proj" in t)
+    assert "바로 전달됩니다" in header  # can_inject even with no socket recorded
+
+
+def test_codex_topic_message_is_injected_via_codex_queue(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+
+    calls = []
+    monkeypatch.setattr(broker, "inject_codex_message", lambda sid, text: calls.append((sid, text)))
+
+    b._handle_message({"message_thread_id": 101, "text": "run the build"})
+    assert calls == [("cx1", "run the build")]
+
+
+def test_codex_failed_injection_is_queued_for_retry(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+
+    def boom(sid, text):
+        raise broker.CodexInjectError("codex CLI not found on PATH")
+
+    monkeypatch.setattr(broker, "inject_codex_message", boom)
+    b._handle_message({"message_thread_id": 101, "text": "later"})
+
+    lines = paths.inbox_file("cx1").read_text().splitlines()
+    assert json.loads(lines[0])["text"] == "later"
+    assert any("재시도" in t for _, t, *_ in fake.sent)
+
+    ok = []
+    monkeypatch.setattr(broker, "inject_codex_message", lambda sid, text: ok.append(text))
+    b._process_inbox()
+    assert ok == ["later"]
+    assert paths.inbox_file("cx1").read_text().strip() == ""
+
+
+def test_registration_backfills_kind_on_legacy_record(monkeypatch):
+    # A record written before "kind" existed (or by a broker that predates this
+    # session's install) must not get stuck defaulting to "claude" forever.
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    rec = json.loads(paths.session_file("cx1").read_text())
+    del rec["kind"]
+    paths.session_file("cx1").write_text(json.dumps(rec))
+
+    _register_codex()  # SessionStart fires again (resume), still says kind: codex
+    b._process_registrations()
+
+    assert json.loads(paths.session_file("cx1").read_text())["kind"] == "codex"
+    assert len(fake.created) == 1  # no second topic
+
+
+def test_codex_status_shows_queue_delivery_not_socket(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    fake.sent.clear()
+
+    b._handle_message({"message_thread_id": 101, "text": "/status"})
+    assert any("kind: codex" in t and "socket: codex queue" in t for _, t, *_ in fake.sent)
 
 
 def test_outbox_tidies_task_notification(monkeypatch):

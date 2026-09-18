@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import _bridge_common as bc
 from conftest import transcript
@@ -40,3 +41,38 @@ def test_ts_is_sortable():
     b = bc.ts()
     assert a <= b
     assert "T" in a
+
+
+# --- consume_pending_injection (Codex echo suppression) ----------------------
+
+
+def test_consume_pending_injection_matches_and_removes():
+    f = bc.PENDING / "sidX.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps([{"text": "hello from telegram", "ts": time.time()}]))
+
+    assert bc.consume_pending_injection("sidX", "hello from telegram") is True
+    assert json.loads(f.read_text()) == []
+
+
+def test_consume_pending_injection_no_match_returns_false():
+    assert bc.consume_pending_injection("sidY", "never queued") is False
+
+
+def test_consume_pending_injection_leaves_other_entries():
+    f = bc.PENDING / "sidZ.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    f.write_text(json.dumps([{"text": "one", "ts": now}, {"text": "two", "ts": now}]))
+
+    assert bc.consume_pending_injection("sidZ", "one") is True
+    assert json.loads(f.read_text()) == [{"text": "two", "ts": now}]
+
+
+def test_consume_pending_injection_prunes_stale_entries():
+    f = bc.PENDING / "sidW.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps([{"text": "old", "ts": time.time() - 999}]))
+
+    assert bc.consume_pending_injection("sidW", "old") is False  # too stale to match
+    assert json.loads(f.read_text()) == []  # pruned along the way

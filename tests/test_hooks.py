@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import _bridge_common as bc
@@ -172,3 +173,125 @@ def test_session_end_writes_end_file(hook_env):
     end = json.loads((bc.END / "sess-D.json").read_text())
     assert end["session_id"] == "sess-D"
     assert end["reason"] == "exit"
+
+
+# --- Codex CLI hooks ---------------------------------------------------------
+# Same file-queue contract as the Claude hooks above, but Codex's own payload
+# shapes: SessionStart has no socket/token to capture, Stop hands back the
+# reply text directly (no transcript to reopen), and a queued message is
+# indistinguishable from a typed one at UserPromptSubmit (no peer wrapper) —
+# so the echo check goes through the pending-injection file instead.
+
+
+def test_codex_session_start_writes_register_with_kind(hook_env):
+    r = run_hook(
+        "codex_session_start.py",
+        {"session_id": "cx-A", "cwd": "/home/x/proj", "source": "startup"},
+        hook_env,
+    )
+    assert r.returncode == 0
+    reg = json.loads((bc.REGISTER / "cx-A.json").read_text())
+    assert reg["kind"] == "codex"
+    assert reg["base"] == "proj"
+    assert "messaging_socket" not in reg
+
+
+def test_codex_stop_mirrors_last_assistant_message(hook_env):
+    bc.write_json_atomic(bc.session_file("cx-B"), {"session_id": "cx-B", "status": "active"})
+    r = run_hook(
+        "codex_stop.py",
+        {"session_id": "cx-B", "last_assistant_message": "the answer"},
+        hook_env,
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "cx-B").iterdir())
+    assert json.loads(files[0].read_text()) == {"role": "assistant", "text": "the answer"}
+
+
+def test_codex_stop_silent_for_unregistered_session(hook_env):
+    r = run_hook(
+        "codex_stop.py", {"session_id": "cx-ghost", "last_assistant_message": "hi"}, hook_env
+    )
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "cx-ghost").exists()
+
+
+def test_codex_stop_clears_busy_marker(hook_env):
+    bc.write_json_atomic(bc.session_file("cx-BZ"), {"session_id": "cx-BZ", "status": "active"})
+    bc.mark_busy("cx-BZ")
+    r = run_hook(
+        "codex_stop.py", {"session_id": "cx-BZ", "last_assistant_message": "ok"}, hook_env
+    )
+    assert r.returncode == 0
+    assert not (bc.BUSY / "cx-BZ").exists()
+
+
+def test_codex_user_prompt_submit_mirrors_when_pending(hook_env):
+    bc.write_json_atomic(bc.REGISTER / "cx-C.json", {"session_id": "cx-C", "kind": "codex"})
+    r = run_hook(
+        "codex_user_prompt_submit.py", {"session_id": "cx-C", "prompt": "  do it  "}, hook_env
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "cx-C").iterdir())
+    assert json.loads(files[0].read_text()) == {"role": "user", "text": "do it"}
+    assert (bc.BUSY / "cx-C").exists()  # turn is now in progress
+
+
+def test_codex_user_prompt_submit_skips_pending_injection_echo(hook_env):
+    # The broker queued this exact text via `codex queue` just before it landed
+    # here — codex_inject.py leaves a marker for it. Must not double-post.
+    bc.write_json_atomic(
+        bc.session_file("cx-D"), {"session_id": "cx-D", "kind": "codex", "status": "active"}
+    )
+    bc.PENDING.mkdir(parents=True, exist_ok=True)
+    (bc.PENDING / "cx-D.json").write_text(
+        json.dumps([{"text": "지금 잘 돌고있나", "ts": time.time()}])
+    )
+    r = run_hook(
+        "codex_user_prompt_submit.py", {"session_id": "cx-D", "prompt": "지금 잘 돌고있나"}, hook_env
+    )
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "cx-D").exists()
+    assert (bc.BUSY / "cx-D").exists()  # still starts a turn
+    assert json.loads((bc.PENDING / "cx-D.json").read_text()) == []  # consumed
+
+
+def test_codex_session_end_writes_end_file(hook_env):
+    r = run_hook("codex_session_end.py", {"session_id": "cx-E", "reason": "exit"}, hook_env)
+    assert r.returncode == 0
+    end = json.loads((bc.END / "cx-E.json").read_text())
+    assert end["session_id"] == "cx-E"
+    assert end["reason"] == "exit"
+
+
+def test_codex_permission_request_mirrors_message(hook_env):
+    bc.write_json_atomic(
+        bc.session_file("cx-F"), {"session_id": "cx-F", "kind": "codex", "status": "active"}
+    )
+    r = run_hook(
+        "codex_permission_request.py",
+        {"session_id": "cx-F", "message": "approve running `rm -rf build`?"},
+        hook_env,
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "cx-F").iterdir())
+    assert json.loads(files[0].read_text()) == {
+        "role": "event", "text": "approve running `rm -rf build`?",
+    }
+
+
+def test_codex_permission_request_silent_when_no_text_field(hook_env):
+    bc.write_json_atomic(
+        bc.session_file("cx-G"), {"session_id": "cx-G", "kind": "codex", "status": "active"}
+    )
+    r = run_hook("codex_permission_request.py", {"session_id": "cx-G"}, hook_env)
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "cx-G").exists()
+
+
+def test_codex_permission_request_silent_for_unregistered_session(hook_env):
+    r = run_hook(
+        "codex_permission_request.py", {"session_id": "cx-ghost", "message": "hi"}, hook_env
+    )
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "cx-ghost").exists()

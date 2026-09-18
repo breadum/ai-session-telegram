@@ -36,6 +36,7 @@ def main() -> None:
         bc.REGISTER / f"{sid}.json",
         {
             "session_id": sid,
+            "kind": "claude",
             "label": f"{base}-{sid[:4]}"[:120],  # for `bridge status` / logs
             "base": base,                        # topic-name prefix
             "cwd": cwd,

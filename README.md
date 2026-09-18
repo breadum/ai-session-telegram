@@ -39,7 +39,8 @@
 
 ## 요구 사항
 
-- Claude Code 2.x (`[uds-messaging]` 소켓이 있는 버전)
+- Claude Code 2.x (`[uds-messaging]` 소켓이 있는 버전) 그리고/또는 Codex CLI
+  (`codex queue` 서브커맨드가 있는 버전)
 - [uv](https://docs.astral.sh/uv/)
 - Topics를 켠 텔레그램 슈퍼그룹과 봇 하나
 
@@ -72,6 +73,15 @@ uv run bridge install-hooks   # Claude Code 훅을 ~/.claude/settings.json에 �
 ./service/install.sh          # 브로커를 systemd --user 서비스로 올려 상시 실행한다
 ```
 
+Codex CLI 세션도 같은 그룹에 붙이려면 훅을 하나 더 등록한다 (`--agent all`이면 둘 다).
+
+```bash
+uv run bridge install-hooks --agent codex   # ~/.codex/hooks.json에 추가
+```
+
+Codex는 새로 추가된 훅을 처음 한 번은 신뢰해야 실행한다. `codex --dangerously-bypass-hook-trust`로
+띄우거나, 인터랙티브 신뢰 프롬프트에서 승인한다.
+
 마지막으로 `~/.claude/settings.json`에 한 줄을 더한다. 이 설정이 없으면 브로커가
 넣은 메시지를 Claude Code가 보류하고 세션까지 전달하지 않는다. 배경은
 [권한](#권한)에 있다.
@@ -93,6 +103,10 @@ claude --dangerously-skip-permissions
 
 그룹에 `<디렉터리>-<세션ID>` 토픽이 생긴다. 이 플래그가 필요한 이유는
 [권한](#권한)에 있다.
+
+Codex는 `codex --dangerously-bypass-approvals-and-sandbox`(또는 `-a never`처럼
+덜 극단적인 조합)로 띄운다. 인터랙티브 세션이 **첫 프롬프트를 보낼 때** 토픽이
+생긴다 — Claude Code와 달리 세션 시작 시점이 아니라 조금 늦게 뜨는 게 정상이다.
 
 ## 사용
 

@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import paths
+from .codex_inject import CodexInjectError, inject_codex_message
 from .config import Config
 from .inject import InjectError, inject_user_message
 from .render import tidy_prompt, to_telegram_html
@@ -140,6 +141,7 @@ def _forget_session(sid: str, thread_id: int | None) -> None:
     if thread_id is not None:
         paths.thread_file(thread_id).unlink(missing_ok=True)
     paths.busy_file(sid).unlink(missing_ok=True)
+    paths.pending_file(sid).unlink(missing_ok=True)
     _wipe_outbox(sid)
 
 
@@ -230,6 +232,11 @@ class Broker:
                     if req.get(k) and req.get(k) != existing.get(k):
                         existing[k] = req[k]
                         changed = True
+                if "kind" not in existing and req.get("kind"):
+                    # backfills records made before kind existed (or a Claude
+                    # session's, which still doesn't send one — stays "claude").
+                    existing["kind"] = req["kind"]
+                    changed = True
                 if changed:
                     _write_session(sid, existing)
                     log.info("refreshed messaging socket for %s", existing.get("label", sid))
@@ -239,7 +246,8 @@ class Broker:
             label = req.get("label") or sid[:12]
             cwd = req.get("cwd", "?")
             base = req.get("base") or label
-            initial = f"{base} …"
+            kind = req.get("kind", "claude")
+            initial = f"{'[codex] ' if kind == 'codex' else ''}{base} …"
             try:
                 thread_id = self.tg.create_forum_topic(self.cfg.chat_id, initial)
             except TelegramError as e:
@@ -253,6 +261,7 @@ class Broker:
                 continue
             rec = {
                 "session_id": sid,
+                "kind": kind,
                 "label": label,
                 "base": base,
                 "cwd": cwd,
@@ -267,7 +276,8 @@ class Broker:
             _write_session(sid, rec)
             paths.thread_file(thread_id).write_text(sid)
             f.unlink(missing_ok=True)
-            can_inject = bool(rec["messaging_socket"] and rec["messaging_token"])
+            # Codex has no socket to check — `codex queue` just needs the session id.
+            can_inject = kind == "codex" or bool(rec["messaging_socket"] and rec["messaging_token"])
             header = (
                 f"🟢 {base}\n"
                 f"cwd: {cwd}\n"
@@ -280,7 +290,7 @@ class Broker:
                 + "/status  /exit  /title <text>"
             )
             send_with_retry(self.tg, self.cfg.chat_id, header, message_thread_id=thread_id)
-            log.info("registered %s -> topic %s (inject=%s)", label, thread_id, can_inject)
+            log.info("registered %s -> topic %s (kind=%s inject=%s)", label, thread_id, kind, can_inject)
 
     # --- inbound updates -> session -------------------------------
 
@@ -321,15 +331,19 @@ class Broker:
             self._say(thread_id, "session has ended — message ignored. (/exit to delete this topic)")
             return
 
-        if not (rec.get("messaging_socket") and rec.get("messaging_token")):
+        kind = rec.get("kind", "claude")
+        if kind != "codex" and not (rec.get("messaging_socket") and rec.get("messaging_token")):
             self._say(thread_id, "이 세션은 소켓 정보가 없어 메시지를 넣을 수 없습니다 (미러 전용).")
             return
 
         busy = _busy_seconds(sid)
         try:
-            inject_user_message(rec["messaging_socket"], rec["messaging_token"], text)
+            if kind == "codex":
+                inject_codex_message(sid, text)
+            else:
+                inject_user_message(rec["messaging_socket"], rec["messaging_token"], text)
             log.info("injected -> %s (%d chars)", rec["label"], len(text))
-        except InjectError as e:
+        except (InjectError, CodexInjectError) as e:
             _inbox_append(sid, text)
             self._say(thread_id, "⚠️ 세션에 바로 연결하지 못했습니다. 큐에 넣고 재시도합니다.")
             log.warning("inject failed for %s: %s (queued)", rec["label"], e)
@@ -358,16 +372,22 @@ class Broker:
             else:
                 self._say(thread_id, "couldn't rename the topic.")
         elif head == "/status":
-            sock = rec.get("messaging_socket", "")
-            reachable = bool(sock) and Path(sock).exists()
+            kind = rec.get("kind", "claude")
+            if kind == "codex":
+                delivery = "codex queue"
+            else:
+                sock = rec.get("messaging_socket", "")
+                reachable = bool(sock) and Path(sock).exists()
+                delivery = "ok" if reachable else ("missing" if sock else "unknown")
             pending = len(_inbox_lines(sid))
             busy = _busy_seconds(sid)
             activity = f"🔧 작업 중 ({busy}s)" if busy is not None else "idle"
             self._say(
                 thread_id,
                 f"label: {rec['label']}\nstatus: {rec['status']}"
+                f"\nkind: {kind}"
                 f"\nactivity: {activity}"
-                f"\nsocket: {'ok' if reachable else ('missing' if sock else 'unknown')}"
+                f"\nsocket: {delivery}"
                 f"\npending (retry): {pending}\ncwd: {rec['cwd']}",
             )
         elif head == "/sessions":
@@ -405,8 +425,9 @@ class Broker:
             if rec is None or rec.get("status") == "ended":
                 _inbox_rewrite(sid, [])
                 continue
+            kind = rec.get("kind", "claude")
             sock, tok = rec.get("messaging_socket", ""), rec.get("messaging_token", "")
-            if not (sock and tok):
+            if kind != "codex" and not (sock and tok):
                 continue
             remaining = list(lines)
             for line in lines:
@@ -416,8 +437,11 @@ class Broker:
                     remaining.pop(0)
                     continue
                 try:
-                    inject_user_message(sock, tok, text)
-                except InjectError:
+                    if kind == "codex":
+                        inject_codex_message(sid, text)
+                    else:
+                        inject_user_message(sock, tok, text)
+                except (InjectError, CodexInjectError):
                     break  # still unreachable; keep this line and the rest
                 remaining.pop(0)
                 log.info("retry-injected -> %s", rec["label"])
@@ -536,7 +560,8 @@ def _sessions_summary() -> str:
             continue
         sid = r["session_id"]
         act = "🔧" if _busy_seconds(sid) is not None else "  "
-        rows.append(f"{act} {r['label']:<24} {r['status']:<8} q={len(_inbox_lines(sid))}")
+        tag = "codex" if r.get("kind") == "codex" else "claude"
+        rows.append(f"{act} {r['label']:<24} {tag:<6} {r['status']:<8} q={len(_inbox_lines(sid))}")
     return "\n".join(rows) if rows else "(no sessions)"
 
 

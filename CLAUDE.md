@@ -5,18 +5,26 @@ Read this before editing. It records the invariants that are easy to break.
 
 ## What this is
 
-A bridge between Claude Code sessions and a Telegram forum group: one **topic
-per session**, prompts + responses mirrored out, and Telegram messages injected
-back into the running session. No web service, no database — a single broker
-daemon plus five Claude Code hooks talking through files.
+A bridge between Claude Code (and Codex CLI) sessions and a Telegram forum
+group: one **topic per session**, prompts + responses mirrored out, and
+Telegram messages injected back into the running session. No web service, no
+database — a single broker daemon plus a handful of stdlib hooks per agent,
+talking through files.
+
+Both agents share the same file-queue contract and broker code; a session
+record's `"kind": "claude" | "codex"` field is the only thing that changes how
+it's handled (delivery mechanism, hook payload shape). Absent `kind` means
+`"claude"` — every record predates Codex support.
 
 ## Architecture (do not break these)
 
-1. **Hooks are stdlib-only and non-blocking.** Everything in `hooks/` runs from
-   `~/.claude/settings.json` with the *system* `python3` on every session event.
+1. **Hooks are stdlib-only and non-blocking.** Claude's `hooks/*.py` run from
+   `~/.claude/settings.json`, Codex's `hooks/codex_*.py` from
+   `~/.codex/hooks.json` — both with the *system* `python3`, on every session
+   event.
    - No third-party imports. No `import claude_bridge_telegram`. `_bridge_common.py`
      is a deliberate standalone mirror of `paths.py` — keep them in sync by hand;
-     do not merge them.
+     do not merge them. Both agents' hooks share this one file.
    - A hook writes one small file under `paths.ROOT` and calls `bc.emit()`. It
      must never block, poll, or wait. (The old `Stop` hook blocked for minutes;
      that is gone and must not come back.)
@@ -25,35 +33,54 @@ daemon plus five Claude Code hooks talking through files.
    `getUpdates` offset, so nothing else may call the Bot API — concurrent
    sessions would race the offset.
 
-3. **Telegram → session goes over Claude Code's `[uds-messaging]` socket**, not a
-   hook. `session_start.py` records `CLAUDE_CODE_MESSAGING_SOCKET` +
-   `CLAUDE_CODE_MESSAGING_TOKEN` (inherited from the `claude` parent) into the
-   register file; `inject.py` connects to that socket, sends an `auth` frame then
-   a `user` frame. This works whether the session is idle or mid-turn.
-   - The session receives it as a **peer message**, not a first-person user
-     prompt. Two setup requirements follow (neither is a bug to fix in the bridge):
-     1. `~/.claude/settings.json` must set `"crossSessionInbound": "accept"`.
-        Otherwise Claude Code *holds* peer messages from an unattested sender
-        when the receiving session bypasses prompts — the socket write succeeds
-        but the message never reaches the model (it lands in the transcript as a
-        "Held peer message" system notice).
-     2. Telegram-driven sessions must run with `--dangerously-skip-permissions`
-        (or an equivalent trusted mode). A peer message will *not* dismiss a
-        native tool-permission dialog.
+3. **Telegram → session goes over an agent-specific channel**, not a hook.
+   - **Claude**: `session_start.py` records `CLAUDE_CODE_MESSAGING_SOCKET` +
+     `CLAUDE_CODE_MESSAGING_TOKEN` (inherited from the `claude` parent) into the
+     register file; `inject.py` connects to that `[uds-messaging]` socket, sends
+     an `auth` frame then a `user` frame. This works whether the session is idle
+     or mid-turn.
+     - The session receives it as a **peer message**, not a first-person user
+       prompt. Two setup requirements follow (neither is a bug to fix in the bridge):
+       1. `~/.claude/settings.json` must set `"crossSessionInbound": "accept"`.
+          Otherwise Claude Code *holds* peer messages from an unattested sender
+          when the receiving session bypasses prompts — the socket write succeeds
+          but the message never reaches the model (it lands in the transcript as a
+          "Held peer message" system notice).
+       2. Telegram-driven sessions must run with `--dangerously-skip-permissions`
+          (or an equivalent trusted mode). A peer message will *not* dismiss a
+          native tool-permission dialog.
+   - **Codex**: no socket to capture — every Codex session registers with one
+     shared local app-server daemon, so `codex_inject.py` just shells out
+     `codex queue --thread <sid> --message <text>` (confirmed live: this starts
+     a new turn immediately in an idle session, no keypress). Unlike Claude's
+     peer message, Codex has **no wrapper** distinguishing an injected prompt
+     from a typed one at `UserPromptSubmit` — so `codex_inject.py` drops a
+     marker in `paths.PENDING` right before calling `codex queue`, and
+     `codex_user_prompt_submit.py` (via `_bridge_common.consume_pending_injection`)
+     checks it instead of pattern-matching text. Codex sessions also need
+     `--dangerously-bypass-hook-trust` (or one-time interactive trust) before
+     the bridge's hooks run at all — see `hookinstall.install_codex`.
 
 4. **File-queue contract between hook and broker:**
-   - `register/<sid>.json` — session_start → broker makes/refreshes a topic
-   - `sessions/<sid>.json` — broker's record (label, thread_id, socket, token, status, titled)
+   - `register/<sid>.json` — session_start → broker makes/refreshes a topic.
+     Carries `"kind": "claude" | "codex"`; the broker copies it onto the
+     session record and it's `kind` that drives every fork below.
+   - `sessions/<sid>.json` — broker's record (kind, label, thread_id, socket,
+     token, status, titled)
    - `outbox/<sid>/<ts>.json` — `{"role": "user"|"assistant"|"note"|"event", "text": ...}`,
      optional `"ai_title"` (Claude Code's own session title, forwarded by the
      `Stop` hook — the broker renames the topic to it once) → broker sends to the topic.
-     `event` (🔔) is what `notification.py` queues when the session wants
-     attention, and what `tidy_prompt` downgrades machine turns to.
+     `event` (🔔) is what `notification.py` / `codex_permission_request.py`
+     queues when the session wants attention, and what `tidy_prompt` downgrades
+     machine turns to.
    - `inbox/<sid>.jsonl` — commands that *failed* to inject, retried each loop
    - `busy/<sid>` — present between `UserPromptSubmit` and `Stop`: a turn is
      running. `/status` reads it; a message sent while it exists gets a
      "queued behind the current turn" note. mtime = turn start.
    - `end/<sid>.json` — session_end → broker marks ended / deletes topic
+   - `pending/<sid>.json` — Codex only: texts `codex_inject.py` just queued,
+     awaiting the `UserPromptSubmit` echo (see item 3). TTL-pruned, never read
+     by Claude sessions.
    Change the `outbox` JSON shape and you must change both the hook that writes
    it (`_bridge_common.queue_outbox`) and `broker._read_outbox_item`.
 
@@ -74,7 +101,8 @@ daemon plus five Claude Code hooks talking through files.
      injection, wrapped in an "Another Claude session sent a message:" preamble).
      `user_prompt_submit.py` drops it *before* queuing (still marks the turn
      busy); `tidy_prompt` has the same prefix check as a backstop. Without this
-     every Telegram message double-posts in its topic.
+     every Telegram message double-posts in its topic. Codex has no such
+     wrapper to match against — see the `pending/` mechanism in items 3 and 4.
 
 ## Secrets
 
@@ -115,5 +143,6 @@ uv run pytest
 
 `service/claude-bridge-telegram.service.in` is a template; `service/install.sh`
 renders `@REPO_DIR@` / `@BRIDGE_BIN@` from its own location, so the checkout can
-live anywhere. After moving the repo: `uv sync`, `bridge install-hooks`,
+live anywhere. After moving the repo: `uv sync`, `bridge install-hooks`
+(add `--agent codex` or `--agent all` if Codex sessions are in use too),
 `./service/install.sh` again.
