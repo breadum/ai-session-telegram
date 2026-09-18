@@ -8,9 +8,16 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows' locale-based default text encoding (not UTF-8) makes the
+      # test suite's own read_text()/write_text() calls (unlike the
+      # production code, which always passes encoding="utf-8" explicitly)
+      # mangle non-ASCII content. This is the standard PEP 540 fix.
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 

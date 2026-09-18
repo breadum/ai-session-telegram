@@ -132,6 +132,11 @@ uv run pytest
 - Hooks are exercised as real subprocesses (`tests/test_hooks.py`, both the
   Claude and `codex_*` ones) — that is how each agent actually runs them, so
   keep it that way.
+- On Windows, run tests with `PYTHONUTF8=1` set (CI does this in
+  `.github/workflows/ci.yml`) — unlike the production code, which always
+  passes `encoding="utf-8"` explicitly, the *tests'* own `read_text()`/
+  `write_text()` calls rely on Python's UTF-8 mode to not mangle the
+  non-ASCII fixtures (Korean text) they round-trip.
 
 ## Commits
 
