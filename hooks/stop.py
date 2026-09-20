@@ -22,7 +22,9 @@ def main() -> None:
         bc.emit()
 
     tp = ev.get("transcript_path", "")
-    bc.queue_outbox(sid, "assistant", bc.last_assistant_text(tp), ai_title=bc.last_ai_title(tp))
+    text = bc.last_assistant_text(tp)
+    if text is not None:
+        bc.queue_outbox(sid, "assistant", text, ai_title=bc.last_ai_title(tp))
     bc.emit()
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import _bridge_common as bc
 from conftest import transcript
@@ -25,8 +26,123 @@ def test_last_assistant_text_takes_final_assistant(tmp_path):
     assert bc.last_assistant_text(str(t)) == "final answer"
 
 
+def test_last_assistant_text_joins_every_segment_since_the_turn_started(tmp_path):
+    # A turn commonly has several assistant messages interleaved with tool
+    # calls (narration, tool call, more narration, ...) — all of it is real
+    # content, not just whichever one happened to come last. This is the
+    # exact shape of a real bug: only "final" used to reach Telegram.
+    t = transcript(
+        tmp_path / "t.jsonl",
+        [
+            ("user", "do the migration"),
+            ("assistant", "first, backing up"),
+            ("assistant", "backup done, now the DDL"),
+            ("assistant", "final: all done, 151 tests passed"),
+        ],
+    )
+    assert bc.last_assistant_text(str(t)) == (
+        "first, backing up\n\nbackup done, now the DDL\n\nfinal: all done, 151 tests passed"
+    )
+
+
+def test_last_assistant_text_does_not_leak_earlier_turns(tmp_path):
+    t = transcript(
+        tmp_path / "t.jsonl",
+        [
+            ("user", "first request"),
+            ("assistant", "first response"),
+            ("user", "second request"),
+            ("assistant", "second response part 1"),
+            ("assistant", "second response part 2"),
+        ],
+    )
+    assert bc.last_assistant_text(str(t)) == "second response part 1\n\nsecond response part 2"
+
+
 def test_last_assistant_text_missing_file():
     assert bc.last_assistant_text("/no/such/file") == "(transcript unavailable)"
+
+
+def _write_raw(path, lines: list[dict]):
+    path.write_text("\n".join(json.dumps(o) for o in lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_last_assistant_text_summarizes_tool_calls_when_no_text(tmp_path):
+    # A real turn can do substantial work — tool calls only, no narration.
+    # "(no text in final response)" was a bare, unhelpful placeholder for
+    # this; a tool-name summary at least says something happened.
+    t = _write_raw(tmp_path / "t.jsonl", [
+        {"type": "user", "message": {"role": "user", "content": "clean up the old files"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Read", "input": {}},
+        ]}},
+    ])
+    assert bc.last_assistant_text(str(t)) == "🔧 텍스트 응답 없이 도구를 실행했습니다: Bash×2, Read"
+
+
+def test_last_assistant_text_retries_a_torn_final_write(tmp_path, monkeypatch):
+    # Real bug: Claude Code can still be flushing the turn's last message to
+    # disk exactly when Stop fires. A torn last line failed to parse and was
+    # silently dropped — losing exactly the turn's real conclusion while
+    # earlier, already-flushed lines (progress notes) still went out,
+    # looking complete. Simulate the write finishing a couple of reads in.
+    complete = (
+        json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant",
+                     "content": [{"type": "text", "text": "final answer"}]}}) + "\n"
+    )
+    torn = complete[:-20]  # cuts the last line mid-JSON
+    t = tmp_path / "t.jsonl"
+    t.write_text(torn, encoding="utf-8")
+
+    reads = {"n": 0}
+    real_read_text = Path.read_text
+
+    def flaky_read_text(self, *a, **k):
+        reads["n"] += 1
+        if reads["n"] >= 3:
+            t.write_text(complete, encoding="utf-8")
+        return real_read_text(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    monkeypatch.setattr(bc.time, "sleep", lambda s: None)  # don't actually wait in tests
+
+    assert bc.last_assistant_text(str(t)) == "final answer"
+    assert reads["n"] >= 3
+
+
+def test_last_assistant_text_gives_up_after_retries_exhausted(tmp_path, monkeypatch):
+    # A last line that's persistently broken (not a transient torn write)
+    # must not hang forever or silently return nothing — the rest of the
+    # (complete) turn still gets mirrored.
+    t = tmp_path / "t.jsonl"
+    t.write_text(
+        json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant",
+                     "content": [{"type": "text", "text": "partial"}]}}) + "\n"
+        + '{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "cut off mid',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bc.time, "sleep", lambda s: None)
+    assert bc.last_assistant_text(str(t)) == "partial"
+
+
+def test_last_assistant_text_none_for_a_genuinely_empty_machine_turn(tmp_path):
+    # A synthetic/machine turn (slash command, background-task notification,
+    # local-command echo) that produced neither text nor a tool call has
+    # nothing worth mirroring — the caller (stop.py) should skip it entirely,
+    # the same way tidy_prompt already skips these on the prompt side.
+    t = _write_raw(tmp_path / "t.jsonl", [
+        {"type": "user", "message": {"role": "user", "content": "<command-name>/compact</command-name>"}},
+    ])
+    assert bc.last_assistant_text(str(t)) is None
 
 
 def test_write_json_atomic_roundtrip(tmp_path):

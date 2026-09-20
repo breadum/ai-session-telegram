@@ -65,6 +65,31 @@ def test_stop_hook_mirrors_response_for_registered_session(hook_env, tmp_path):
     assert json.loads(files[0].read_text()) == {"role": "assistant", "text": "the answer"}
 
 
+def test_stop_hook_skips_outbox_for_a_genuinely_empty_machine_turn(hook_env, tmp_path):
+    bc.write_json_atomic(bc.session_file("sess-M"), {"session_id": "sess-M", "status": "active"})
+    t = tmp_path / "t.jsonl"
+    t.write_text(json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "<command-name>/compact</command-name>"}}
+    ) + "\n")
+    r = run_hook("stop.py", {"session_id": "sess-M", "transcript_path": str(t)}, hook_env)
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "sess-M").exists()
+
+
+def test_stop_hook_summarizes_tool_only_turn(hook_env, tmp_path):
+    bc.write_json_atomic(bc.session_file("sess-K"), {"session_id": "sess-K", "status": "active"})
+    t = tmp_path / "t.jsonl"
+    t.write_text(
+        json.dumps({"type": "user", "message": {"role": "user", "content": "clean up"}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant",
+                     "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}) + "\n"
+    )
+    r = run_hook("stop.py", {"session_id": "sess-K", "transcript_path": str(t)}, hook_env)
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "sess-K").iterdir())
+    assert json.loads(files[0].read_text())["text"] == "🔧 텍스트 응답 없이 도구를 실행했습니다: Bash"
+
+
 def test_stop_hook_forwards_ai_title(hook_env, tmp_path):
     bc.write_json_atomic(bc.session_file("sess-T"), {"session_id": "sess-T", "status": "active"})
     t = tmp_path / "t.jsonl"
@@ -226,6 +251,13 @@ def test_codex_stop_mirrors_last_assistant_message(hook_env):
     assert r.returncode == 0
     files = list((bc.OUTBOX / "cx-B").iterdir())
     assert json.loads(files[0].read_text()) == {"role": "assistant", "text": "the answer"}
+
+
+def test_codex_stop_skips_outbox_when_no_final_message(hook_env):
+    bc.write_json_atomic(bc.session_file("cx-E"), {"session_id": "cx-E", "status": "active"})
+    r = run_hook("codex_stop.py", {"session_id": "cx-E"}, hook_env)
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "cx-E").exists()
 
 
 def test_codex_stop_silent_for_unregistered_session(hook_env):

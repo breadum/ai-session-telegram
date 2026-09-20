@@ -20,8 +20,9 @@ def main() -> None:
     if not sid or not bc.session_file(sid).exists():
         bc.emit()
 
-    text = ev.get("last_assistant_message") or "(no text in final response)"
-    bc.queue_outbox(sid, "assistant", text)
+    text = ev.get("last_assistant_message")
+    if text and text.strip():
+        bc.queue_outbox(sid, "assistant", text)
     bc.emit()
 
 

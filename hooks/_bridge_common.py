@@ -148,36 +148,106 @@ def emit(obj: dict | None = None) -> None:
 # transcript
 # --------------------------------------------------------------------------
 
-def last_assistant_text(transcript_path: str) -> str:
-    """Join the text blocks of the final assistant message in the transcript."""
+def _is_turn_start(obj: dict) -> bool:
+    """A real user (or peer-injected) prompt, not a tool_result. Both are
+    recorded as type=="user", but only a genuine prompt has a plain string
+    `content` — a tool_result's content is always a list of blocks."""
+    if obj.get("type") != "user":
+        return False
+    return isinstance((obj.get("message") or {}).get("content"), str)
+
+
+def _read_transcript_objs(p: Path) -> list[dict]:
+    """Read+parse a transcript .jsonl, retrying briefly if the *last* line
+    fails to parse — Claude Code may still be flushing the final message to
+    disk exactly when Stop fires, and a torn write there would otherwise
+    silently drop exactly the content a mirror most needs (the turn's real
+    conclusion), while earlier, already-flushed lines (scaffolding/progress
+    notes) still parse fine and go out looking complete. A handful of
+    retries at a few tens of ms each is negligible next to hooks' own
+    non-blocking budget."""
+    objs: list[dict] = []
+    for attempt in range(5):
+        raw_lines = [
+            ln.strip()
+            for ln in p.read_text(encoding="utf-8", errors="replace").splitlines()
+            if ln.strip()
+        ]
+        objs = []
+        last_line_failed = False
+        for i, line in enumerate(raw_lines):
+            try:
+                objs.append(json.loads(line))
+            except json.JSONDecodeError:
+                if i == len(raw_lines) - 1:
+                    last_line_failed = True
+        if not last_line_failed or attempt == 4:
+            break
+        time.sleep(0.05)
+    return objs
+
+
+def last_assistant_text(transcript_path: str) -> str | None:
+    """Join the text blocks of every assistant message since this turn began,
+    or build a fallback summary if the turn had none. Returns None when
+    there's nothing worth mirroring at all (caller should skip queuing).
+
+    A single Stop-bounded turn commonly spans several assistant messages
+    interleaved with tool calls (narration, then a tool call, then more
+    narration, ...) — every one of those is real content the user would
+    want mirrored, not just whatever text happened to come last. Scoped to
+    "since the last real user/peer prompt" so this doesn't re-include
+    earlier turns' responses on every Stop.
+
+    A turn can also legitimately have *no* text at all: Claude ran tools
+    without narrating (real work — surface a tool-name summary instead of a
+    bare placeholder) or the turn was one of Claude Code's synthetic machine
+    turns (a slash command, a background-task notification, a local-command
+    echo — genuinely nothing to show; skip it, the same way tidy_prompt
+    already skips these on the user-prompt side).
+    """
     p = Path(transcript_path) if transcript_path else None
     if not p or not p.exists():
         return "(transcript unavailable)"
 
-    best: list[str] = []
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    objs = _read_transcript_objs(p)
+
+    turn_start = 0
+    for i in range(len(objs) - 1, -1, -1):
+        if _is_turn_start(objs[i]):
+            turn_start = i + 1
+            break
+
+    all_texts: list[str] = []
+    tool_names: list[str] = []
+    for obj in objs[turn_start:]:
         if obj.get("type") != "assistant":
             continue
         msg = obj.get("message") or {}
         content = msg.get("content")
-        texts: list[str] = []
         if isinstance(content, str):
-            texts = [content]
-        elif isinstance(content, list):
-            for blk in content:
-                if isinstance(blk, dict) and blk.get("type") == "text":
-                    texts.append(blk.get("text", ""))
-        texts = [t for t in texts if t.strip()]
-        if texts:
-            best = texts  # keep overwriting -> ends on the last one
-    return "\n\n".join(best) if best else "(no text in final response)"
+            if content.strip():
+                all_texts.append(content)
+            continue
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict):
+                continue
+            if blk.get("type") == "text" and blk.get("text", "").strip():
+                all_texts.append(blk["text"])
+            elif blk.get("type") == "tool_use":
+                tool_names.append(blk.get("name") or "?")
+
+    if all_texts:
+        return "\n\n".join(all_texts)
+    if tool_names:
+        counts: dict[str, int] = {}
+        for name in tool_names:
+            counts[name] = counts.get(name, 0) + 1
+        summary = ", ".join(f"{n}×{c}" if c > 1 else n for n, c in counts.items())
+        return f"🔧 텍스트 응답 없이 도구를 실행했습니다: {summary}"
+    return None
 
 
 def last_ai_title(transcript_path: str) -> str:

@@ -47,15 +47,18 @@ def hook_env() -> dict[str, str]:
 
 
 def transcript(path: Path, turns: list[tuple[str, str]]) -> Path:
-    """Write a minimal Claude Code transcript .jsonl. turns = [(role, text), ...]."""
+    """Write a minimal Claude Code transcript .jsonl. turns = [(role, text), ...].
+
+    A "user" entry's content is a plain string, matching a real turn-starting
+    prompt (tool_result entries — the other thing recorded as type=="user" —
+    always have list content; see _bridge_common._is_turn_start). "assistant"
+    keeps the list-of-blocks shape a real one has.
+    """
     import json
 
     lines = []
     for role, text in turns:
-        lines.append(
-            json.dumps(
-                {"type": role, "message": {"role": role, "content": [{"type": "text", "text": text}]}}
-            )
-        )
+        content = text if role == "user" else [{"type": "text", "text": text}]
+        lines.append(json.dumps({"type": role, "message": {"role": role, "content": content}}))
     path.write_text("\n".join(lines) + "\n")
     return path

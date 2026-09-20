@@ -81,7 +81,26 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      `Stop` hook — the broker renames the topic to it once) → broker sends to the topic.
      `event` (🔔) is what `notification.py` / `codex_permission_request.py`
      queues when the session wants attention, and what `tidy_prompt` downgrades
-     machine turns to.
+     machine turns to. The `"assistant"` text comes from
+     `_bridge_common.last_assistant_text`, which joins *every* assistant
+     message since the turn's last real user/peer prompt (scoped via
+     `_is_turn_start`) — a turn commonly has several, interleaved with tool
+     calls, and an earlier version that kept only the last one silently
+     dropped real narration on any multi-tool-call turn. A turn with *no*
+     text at all gets a tool-name summary if it at least ran tools (real
+     silent work), or `None` — meaning `stop.py` skips `queue_outbox`
+     entirely — if it's one of Claude Code's synthetic machine turns (slash
+     command, background-task notification, local-command echo) with
+     nothing to show; don't reintroduce the old bare "(no text in final
+     response)" placeholder for either case. `codex_stop.py` does the
+     simpler version of the same thing (skip when `last_assistant_message`
+     is empty) since Codex hands the reply over directly, no transcript to
+     mine for tool names. Reading the transcript itself races Claude Code's
+     own writer: Stop can fire before the turn's *last* line is fully
+     flushed, so `_read_transcript_objs` retries (a few times, tens of ms
+     apart) when only the last line fails to parse — a real bug had this
+     silently drop the turn's actual conclusion while earlier, already-
+     flushed lines (progress narration) still went out looking complete.
    - `inbox/<sid>.jsonl` — commands that *failed* to inject, retried each loop
    - `busy/<sid>` — present between `UserPromptSubmit` and `Stop`: a turn is
      running. `/status` reads it; a message sent while it exists gets a
