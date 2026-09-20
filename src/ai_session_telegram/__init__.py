@@ -1,3 +1,3 @@
 """ai-session-telegram: connect Claude Code / Codex CLI sessions to Telegram forum topics."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

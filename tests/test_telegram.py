@@ -128,3 +128,29 @@ def test_delete_forum_topic_returns_false_on_error_instead_of_raising():
 
     tg = _client(handler)
     assert tg.delete_forum_topic(-1, 5) is False
+
+
+def test_set_message_reaction_sends_emoji_reaction():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    tg = _client(handler)
+    assert tg.set_message_reaction(-1, 42, "👀") is True
+    assert seen["body"] == {
+        "chat_id": -1,
+        "message_id": 42,
+        "reaction": [{"type": "emoji", "emoji": "👀"}],
+    }
+
+
+def test_set_message_reaction_returns_false_on_error_instead_of_raising():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"ok": False, "error_code": 400, "description": "REACTION_INVALID"}
+        )
+
+    tg = _client(handler)
+    assert tg.set_message_reaction(-1, 42, "👀") is False

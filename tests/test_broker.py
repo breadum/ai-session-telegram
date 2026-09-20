@@ -81,6 +81,28 @@ def test_topic_message_is_injected(monkeypatch):
     assert not any("작업 중" in t for _, t, *_ in fake.sent)
 
 
+def test_successful_injection_reacts_to_the_original_message(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register()
+    b._process_registrations()
+    _mark_telegram_touched()
+    monkeypatch.setattr(broker, "inject_user_message", lambda sid, s, t, text: None)
+
+    b._handle_message({"message_thread_id": 101, "message_id": 555, "text": "run the build"})
+    assert fake.reactions == [(-1001, 555, broker.RECEIVED_REACTION)]
+
+
+def test_no_message_id_is_fine_no_reaction_attempted(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register()
+    b._process_registrations()
+    _mark_telegram_touched()
+    monkeypatch.setattr(broker, "inject_user_message", lambda sid, s, t, text: None)
+
+    b._handle_message({"message_thread_id": 101, "text": "no message_id here"})
+    assert fake.reactions == []
+
+
 def test_first_telegram_message_gets_remote_notice_once(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()

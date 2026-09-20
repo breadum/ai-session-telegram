@@ -95,6 +95,23 @@ class Telegram:
                 else:
                     raise
 
+    def set_message_reaction(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        """React to a message (e.g. an acknowledgement that it reached the
+        session). Best-effort: returns False rather than raising, since a
+        missing reaction is never worth losing the actual message over. The
+        emoji must be one of Telegram's fixed reaction set — an unsupported
+        one just fails quietly here."""
+        try:
+            self._call(
+                "setMessageReaction",
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=[{"type": "emoji", "emoji": emoji}],
+            )
+            return True
+        except TelegramError:
+            return False
+
     # --- forum topics --------------------------------------------------
 
     def create_forum_topic(self, chat_id: int, name: str, *, icon_color: int | None = None) -> int:

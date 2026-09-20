@@ -56,6 +56,11 @@ REMOTE_SESSION_NOTICE = (
     "일반 텍스트로 질문하고 답을 기다려 주세요.\n\n"
 )
 
+# Reacted onto the user's own message once it's handed to the session, so
+# there's an immediate "received" signal even when the reply itself is still
+# a few seconds out — Telegram's reaction set is fixed, this one's in it.
+RECEIVED_REACTION = "👀"
+
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
 # agent kind so topics are tellable apart in the topic list even after the
@@ -377,6 +382,9 @@ class Broker:
             self._say(thread_id, "⚠️ 세션에 바로 연결하지 못했습니다. 큐에 넣고 재시도합니다.")
             log.warning("inject failed for %s: %s (queued)", rec["label"], e)
             return
+        message_id = msg.get("message_id")
+        if message_id is not None:
+            self.tg.set_message_reaction(self.cfg.chat_id, message_id, RECEIVED_REACTION)
         if busy is not None:
             self._say(thread_id, f"⏳ 작업 중 ({busy}s) — 이 메시지는 현재 턴이 끝난 뒤 처리됩니다.")
 

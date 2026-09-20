@@ -10,6 +10,7 @@ class FakeTelegram:
         self.icon_colors: list[int | None] = []
         self.edited: list[tuple[int, int, str]] = []
         self.deleted: list[tuple[int, int]] = []
+        self.reactions: list[tuple[int, int, str]] = []
         self._next_thread = 100
         self.updates: list[dict] = []
 
@@ -39,6 +40,10 @@ class FakeTelegram:
         return True
 
     def close_forum_topic(self, chat_id: int, message_thread_id: int) -> bool:
+        return True
+
+    def set_message_reaction(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        self.reactions.append((chat_id, message_id, emoji))
         return True
 
     # --- inbound ---
