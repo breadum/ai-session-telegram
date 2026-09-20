@@ -118,6 +118,45 @@ def test_last_assistant_text_retries_a_torn_final_write(tmp_path, monkeypatch):
     assert reads["n"] >= 3
 
 
+def test_last_assistant_text_retries_when_final_text_message_is_missing_outright(
+    tmp_path, monkeypatch
+):
+    # Real bug, found from a live transcript: a long final response can lose
+    # the race entirely rather than arriving torn — Stop fires and the hook
+    # reads the file *before* the concluding text message has been appended
+    # at all. That's indistinguishable at read time from a genuine tool-only
+    # turn (valid JSON throughout, just fewer lines than the finished turn
+    # will have), so the parse-failure retry in _read_transcript_objs never
+    # triggers. Simulate the missing line landing a couple of reads in.
+    before_text = (
+        json.dumps({"type": "user", "message": {"role": "user", "content": "status?"}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]}}) + "\n"
+    )
+    after_text = before_text + json.dumps({"type": "assistant", "message": {"role": "assistant",
+        "content": [{"type": "text", "text": "progress report: 67/2074 done"}]}}) + "\n"
+    t = tmp_path / "t.jsonl"
+    t.write_text(before_text, encoding="utf-8")
+
+    reads = {"n": 0}
+    real_read_text = Path.read_text
+
+    def flaky_read_text(self, *a, **k):
+        reads["n"] += 1
+        if reads["n"] >= 3:
+            t.write_text(after_text, encoding="utf-8")
+        return real_read_text(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    monkeypatch.setattr(bc.time, "sleep", lambda s: None)
+
+    assert bc.last_assistant_text(str(t)) == "progress report: 67/2074 done"
+
+
 def test_last_assistant_text_gives_up_after_retries_exhausted(tmp_path, monkeypatch):
     # A last line that's persistently broken (not a transient torn write)
     # must not hang forever or silently return nothing — the rest of the

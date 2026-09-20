@@ -205,39 +205,58 @@ def last_assistant_text(transcript_path: str) -> str | None:
     turns (a slash command, a background-task notification, a local-command
     echo — genuinely nothing to show; skip it, the same way tidy_prompt
     already skips these on the user-prompt side).
+
+    Those two "no text" cases are indistinguishable from a third, real bug:
+    the turn's actual concluding text message just hasn't been appended to
+    the transcript file yet. `_read_transcript_objs` only catches this when
+    the last line is torn (fails to parse); when Stop fires a beat before
+    that line is written *at all*, the file simply looks like it ends one
+    message early — no parse error to retry on. A long final response (more
+    to serialize, more chance Stop wins the race) reliably lost this way
+    reads as "ran tools, said nothing", same shape as a real tool-only turn.
+    So when a scan finds tool calls but no text at all, re-read a few times
+    before trusting that as the real answer — a genuine tool-only turn just
+    costs a few tens of ms extra before its summary goes out.
     """
     p = Path(transcript_path) if transcript_path else None
     if not p or not p.exists():
         return "(transcript unavailable)"
 
-    objs = _read_transcript_objs(p)
-
-    turn_start = 0
-    for i in range(len(objs) - 1, -1, -1):
-        if _is_turn_start(objs[i]):
-            turn_start = i + 1
-            break
-
     all_texts: list[str] = []
     tool_names: list[str] = []
-    for obj in objs[turn_start:]:
-        if obj.get("type") != "assistant":
-            continue
-        msg = obj.get("message") or {}
-        content = msg.get("content")
-        if isinstance(content, str):
-            if content.strip():
-                all_texts.append(content)
-            continue
-        if not isinstance(content, list):
-            continue
-        for blk in content:
-            if not isinstance(blk, dict):
+    for attempt in range(5):
+        objs = _read_transcript_objs(p)
+
+        turn_start = 0
+        for i in range(len(objs) - 1, -1, -1):
+            if _is_turn_start(objs[i]):
+                turn_start = i + 1
+                break
+
+        all_texts = []
+        tool_names = []
+        for obj in objs[turn_start:]:
+            if obj.get("type") != "assistant":
                 continue
-            if blk.get("type") == "text" and blk.get("text", "").strip():
-                all_texts.append(blk["text"])
-            elif blk.get("type") == "tool_use":
-                tool_names.append(blk.get("name") or "?")
+            msg = obj.get("message") or {}
+            content = msg.get("content")
+            if isinstance(content, str):
+                if content.strip():
+                    all_texts.append(content)
+                continue
+            if not isinstance(content, list):
+                continue
+            for blk in content:
+                if not isinstance(blk, dict):
+                    continue
+                if blk.get("type") == "text" and blk.get("text", "").strip():
+                    all_texts.append(blk["text"])
+                elif blk.get("type") == "tool_use":
+                    tool_names.append(blk.get("name") or "?")
+
+        if all_texts or not tool_names or attempt == 4:
+            break
+        time.sleep(0.05)
 
     if all_texts:
         return "\n\n".join(all_texts)

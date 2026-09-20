@@ -58,9 +58,10 @@ REMOTE_SESSION_NOTICE = (
 )
 
 # Reacted onto the user's own message once it's handed to the session, so
-# there's an immediate "received" signal even when the reply itself is still
-# a few seconds out — Telegram's reaction set is fixed, this one's in it.
-RECEIVED_REACTION = "👀"
+# there's an immediate "received, now working on it" signal even when the
+# reply itself is still a few seconds out — Telegram's reaction set is fixed,
+# this one's in it.
+RECEIVED_REACTION = "👨‍💻"
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
@@ -530,6 +531,7 @@ class Broker:
                     parse_mode="HTML",
                 )
                 if ok:
+                    log.info("sent -> %s (%s, %d chars)", rec["label"], role, len(text))
                     f.unlink(missing_ok=True)
                 else:
                     log.warning("failed to send outbox %s, will retry", f)

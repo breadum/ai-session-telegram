@@ -101,6 +101,14 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      apart) when only the last line fails to parse — a real bug had this
      silently drop the turn's actual conclusion while earlier, already-
      flushed lines (progress narration) still went out looking complete.
+     A second, nastier shape of the same race: the concluding text message
+     can be missing from the file *outright* (not torn — Stop just fires
+     before that line is appended at all), which is indistinguishable from a
+     genuine tool-only turn at read time. `last_assistant_text` itself now
+     retries (same handful of tens-of-ms attempts) whenever a scan finds
+     tool calls but zero text, before trusting that as the real answer —
+     confirmed from a live transcript where a long final report reliably
+     lost this race and mirrored as a bare tool-name summary instead.
    - `inbox/<sid>.jsonl` — commands that *failed* to inject, retried each loop
    - `busy/<sid>` — present between `UserPromptSubmit` and `Stop`: a turn is
      running. `/status` reads it; a message sent while it exists gets a
