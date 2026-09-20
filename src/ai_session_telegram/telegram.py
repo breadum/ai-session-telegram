@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 import httpx
 
 from .render import strip_tags
+
+log = logging.getLogger("bridge.telegram")
 
 API_BASE = "https://api.telegram.org"
 MESSAGE_LIMIT = 4096
@@ -100,7 +103,8 @@ class Telegram:
         session). Best-effort: returns False rather than raising, since a
         missing reaction is never worth losing the actual message over. The
         emoji must be one of Telegram's fixed reaction set — an unsupported
-        one just fails quietly here."""
+        one fails (logged, not raised) rather than silently vanishing: a bad
+        choice here previously shipped unnoticed for lack of exactly this."""
         try:
             self._call(
                 "setMessageReaction",
@@ -109,7 +113,8 @@ class Telegram:
                 reaction=[{"type": "emoji", "emoji": emoji}],
             )
             return True
-        except TelegramError:
+        except TelegramError as e:
+            log.warning("reaction %r on message %s failed: %s", emoji, message_id, e)
             return False
 
     # --- forum topics --------------------------------------------------

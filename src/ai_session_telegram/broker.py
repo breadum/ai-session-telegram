@@ -63,10 +63,12 @@ REMOTE_SESSION_NOTICE = (
 # either succeeds or raises); Codex only ever gets the queued one, never the
 # confirmed one — codex queue succeeding just means the thread id was once
 # real, not that a live session picked the message up (see codex_inject.py),
-# so it can't honestly claim "received". set_message_reaction is best-effort
-# either way (silently no-ops if an emoji isn't in Telegram's fixed set).
-RECEIVED_REACTION = "🐮"
-QUEUED_REACTION = "⏳"
+# so it can't honestly claim "received". Telegram's reaction set is a fixed,
+# undocumented list, not "any emoji" — verified these against the live Bot
+# API (setMessageReaction) directly, since silent failure here previously
+# went unlogged and unnoticed. Confirmed invalid: 🐮 ⏳ ✅ ☑️ ✔️ 🐼 🐨 🐸 🦊.
+RECEIVED_REACTION = "👀"
+QUEUED_REACTION = "🐳"
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
