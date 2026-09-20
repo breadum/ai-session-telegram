@@ -326,10 +326,11 @@ def test_codex_topic_message_is_injected_via_codex_queue(monkeypatch):
     assert calls == [("cx1", "run the build")]
 
 
-def test_codex_successful_injection_gets_the_queued_reaction_not_the_confirmed_one(monkeypatch):
+def test_codex_successful_injection_gets_no_reaction(monkeypatch):
     # codex queue succeeding only means the thread id was once real, not that
-    # a live session is attached to pick the message up — Codex gets the
-    # weaker "queued" reaction, never Claude's "received" one.
+    # a live session is attached to pick the message up — Codex can't
+    # honestly claim "received", so it gets no reaction at all (a separate
+    # weaker "queued" reaction existed briefly but was dropped as confusing).
     b, fake = fakes.install(monkeypatch)
     _register_codex()
     b._process_registrations()
@@ -337,7 +338,7 @@ def test_codex_successful_injection_gets_the_queued_reaction_not_the_confirmed_o
     monkeypatch.setattr(broker, "inject_codex_message", lambda sid, text: None)
 
     b._handle_message({"message_thread_id": 101, "message_id": 555, "text": "run the build"})
-    assert fake.reactions == [(-1001, 555, broker.QUEUED_REACTION)]
+    assert fake.reactions == []
 
 
 def test_codex_failed_injection_is_queued_for_retry(monkeypatch):

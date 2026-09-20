@@ -59,16 +59,17 @@ REMOTE_SESSION_NOTICE = (
 
 # Reacted onto the user's own message once it's handed to the session, so
 # there's an immediate signal even when the reply itself is still a few
-# seconds out. Claude gets the confirmed-delivery reaction (its socket write
-# either succeeds or raises); Codex only ever gets the queued one, never the
-# confirmed one — codex queue succeeding just means the thread id was once
-# real, not that a live session picked the message up (see codex_inject.py),
-# so it can't honestly claim "received". Telegram's reaction set is a fixed,
-# undocumented list, not "any emoji" — verified these against the live Bot
-# API (setMessageReaction) directly, since silent failure here previously
-# went unlogged and unnoticed. Confirmed invalid: 🐮 ⏳ ✅ ☑️ ✔️ 🐼 🐨 🐸 🦊.
+# seconds out. Claude-only: its socket write either succeeds or raises, so
+# the reaction can honestly mean "received". Codex gets none — codex queue
+# succeeding just means the thread id was once real, not that a live session
+# picked the message up (see codex_inject.py), so it can't honestly claim
+# "received" either; a separate weaker "queued" reaction existed briefly but
+# was dropped as more confusing than useful. Telegram's reaction set is a
+# fixed, undocumented list, not "any emoji" — verified these against the
+# live Bot API (setMessageReaction) directly, since silent failure here
+# previously went unlogged and unnoticed. Confirmed invalid: 🐮 ⏳ ✅ ☑️ ✔️ 🐼
+# 🐨 🐸 🦊.
 RECEIVED_REACTION = "👀"
-QUEUED_REACTION = "🐳"
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
@@ -393,9 +394,8 @@ class Broker:
             log.warning("inject failed for %s: %s (queued)", rec["label"], e)
             return
         message_id = msg.get("message_id")
-        if message_id is not None:
-            reaction = QUEUED_REACTION if kind == "codex" else RECEIVED_REACTION
-            self.tg.set_message_reaction(self.cfg.chat_id, message_id, reaction)
+        if message_id is not None and kind != "codex":
+            self.tg.set_message_reaction(self.cfg.chat_id, message_id, RECEIVED_REACTION)
         if busy is not None:
             self._say(thread_id, f"⏳ Busy ({busy}s) — this message will be handled once the current turn finishes.")
 
@@ -572,7 +572,7 @@ class Broker:
         send_with_retry(self.tg, self.cfg.chat_id, text, message_thread_id=thread_id)
 
 
-_ROLE_PREFIX = {"user": "🧑 ", "assistant": "🤖 ", "note": "⚠️ ", "event": "🔔 "}
+_ROLE_PREFIX = {"user": "🐮 ", "assistant": "🤖 ", "note": "⚠️ ", "event": "🔔 "}
 # _format_outbox output is sent with parse_mode="HTML" (see _process_outbox).
 
 

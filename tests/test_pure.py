@@ -6,7 +6,7 @@ from ai_session_telegram.broker import _format_outbox, _read_outbox_item
 
 
 def test_format_outbox_prefixes():
-    assert _format_outbox("user", "hi").startswith("🧑")
+    assert _format_outbox("user", "hi").startswith("🐮")
     assert _format_outbox("assistant", "hi").startswith("🤖")
     assert _format_outbox("note", "hi").startswith("⚠️")
     assert _format_outbox("weird", "hi") == "hi"
