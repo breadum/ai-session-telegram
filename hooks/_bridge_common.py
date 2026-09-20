@@ -78,22 +78,27 @@ def queue_outbox(sid: str, role: str, text: str, *, ai_title: str = "") -> None:
 
 
 # --------------------------------------------------------------------------
-# codex pending-injection tracking
+# pending-injection tracking
 #
-# Codex CLI has no Claude-style "peer message" wrapper: a message the broker
-# queues via `codex queue` arrives at UserPromptSubmit looking exactly like
-# something the user typed. So codex_user_prompt_submit.py can't pattern-match
-# a preamble like user_prompt_submit.py does for Claude; instead the broker
-# (codex_inject.py) records the exact text it just queued here, and this
-# consumes a matching entry so it isn't mirrored twice.
+# Neither agent's UserPromptSubmit payload turned out to be a reliable signal
+# for "this was injected by the bridge, not typed": Codex has no wrapper at
+# all (arrives looking exactly like something the user typed), and Claude
+# Code's peer-message wrapper/origin/promptSource fields turned out not to be
+# consistently present or matchable in practice either (a real bridge-caused
+# duplicate mirror was traced back to exactly this). So both claude_inject.py
+# and codex_inject.py record the exact text they're about to deliver here
+# (paths.queue_pending) before delivering it, and this consumes a matching
+# entry so the echo isn't mirrored twice. Claude Code wraps the original text
+# before the hook sees it (Codex doesn't), hence substring rather than exact
+# match below.
 # --------------------------------------------------------------------------
 
-_PENDING_TTL_S = 60  # keep in sync with codex_inject.py's writer
+_PENDING_TTL_S = 60  # keep in sync with paths.queue_pending's writer
 
 
 def consume_pending_injection(sid: str, prompt: str) -> bool:
-    """True and removes the entry if `prompt` matches a message the broker just
-    queued into this Codex session; stale entries are pruned along the way."""
+    """True and removes the entry if `prompt` contains a message the broker
+    just queued into this session; stale entries are pruned along the way."""
     f = PENDING / f"{sid}.json"
     if not f.exists():
         return False
@@ -111,7 +116,7 @@ def consume_pending_injection(sid: str, prompt: str) -> bool:
         items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
         found = False
         for i, it in enumerate(items):
-            if it.get("text") == prompt:
+            if it.get("text") and it["text"] in prompt:
                 items.pop(i)
                 found = True
                 break

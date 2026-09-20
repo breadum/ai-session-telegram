@@ -19,35 +19,13 @@ consumes to skip re-mirroring its own echo — see _bridge_common.py's
 
 from __future__ import annotations
 
-import json
 import subprocess
-import time
 
 from . import paths
-from ._procutil import locked
-
-_PENDING_TTL_S = 60  # keep in sync with hooks/_bridge_common.py's reader
 
 
 class CodexInjectError(Exception):
     """`codex queue` failed, timed out, or the CLI isn't on PATH."""
-
-
-def _queue_pending(sid: str, text: str) -> None:
-    f = paths.pending_file(sid)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f, "a+", encoding="utf-8") as fh, locked(fh):
-        fh.seek(0)
-        try:
-            items = json.loads(fh.read() or "[]")
-        except json.JSONDecodeError:
-            items = []
-        now = time.time()
-        items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
-        items.append({"text": text, "ts": now})
-        fh.seek(0)
-        fh.truncate()
-        fh.write(json.dumps(items, ensure_ascii=False))
 
 
 def inject_codex_message(sid: str, text: str, *, timeout: float = 10.0) -> None:
@@ -58,7 +36,7 @@ def inject_codex_message(sid: str, text: str, *, timeout: float = 10.0) -> None:
     the text as pending first so the echoed UserPromptSubmit isn't mirrored
     a second time, even if the subprocess call itself then fails.
     """
-    _queue_pending(sid, text)
+    paths.queue_pending(sid, text)
     try:
         proc = subprocess.run(
             ["codex", "queue", "--thread", sid, "--message", text],

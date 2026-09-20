@@ -37,9 +37,24 @@ from .telegram import Telegram, TelegramError, send_with_retry
 log = logging.getLogger("bridge.broker")
 
 # getUpdates long-poll seconds. Also the loop cadence and the worst-case latency
-# for shipping a response to Telegram / retrying a failed injection.
-POLL_TIMEOUT = 10
+# for shipping a response to Telegram / retrying a failed injection. Kept short
+# (rather than a more typical 20-30s long-poll) because outbox mirroring — a
+# session's reply reaching the topic — sits behind this same loop iteration;
+# a longer value directly adds to how long a reply takes to show up.
+POLL_TIMEOUT = 2
 SPECIAL = {"/status", "/sessions", "/help", "/exit", "/title"}
+
+# Prepended once to the first message ever injected from Telegram into a given
+# session — never again after that (see `telegram_touched` on the session
+# record). It becomes part of that session's own transcript, so later turns
+# (even ones typed at the desktop) still have it in context; that's what makes
+# "once touched from Telegram, stay in that mode" possible without a Claude
+# Code API to actually disable a tool from outside.
+REMOTE_SESSION_NOTICE = (
+    "[원격 세션 안내] 이 세션은 지금부터 텔레그램으로도 원격 조작됩니다. 사용자가 "
+    "데스크탑 앞에 없을 수 있으니, 이후로는 AskUserQuestion 같은 대화형 UI 대신 "
+    "일반 텍스트로 질문하고 답을 기다려 주세요.\n\n"
+)
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
@@ -276,6 +291,7 @@ class Broker:
                 "thread_id": thread_id,
                 "status": "active",
                 "titled": False,
+                "telegram_touched": False,
                 "messaging_socket": req.get("messaging_socket", ""),
                 "messaging_token": req.get("messaging_token", ""),
                 "pid": req.get("pid", ""),
@@ -344,12 +360,17 @@ class Broker:
             self._say(thread_id, "이 세션은 소켓 정보가 없어 메시지를 넣을 수 없습니다 (미러 전용).")
             return
 
+        if not rec.get("telegram_touched"):
+            text = REMOTE_SESSION_NOTICE + text
+            rec["telegram_touched"] = True
+            _write_session(sid, rec)
+
         busy = _busy_seconds(sid)
         try:
             if kind == "codex":
                 inject_codex_message(sid, text)
             else:
-                inject_user_message(rec["messaging_socket"], rec["messaging_token"], text)
+                inject_user_message(sid, rec["messaging_socket"], rec["messaging_token"], text)
             log.info("injected -> %s (%d chars)", rec["label"], len(text))
         except (InjectError, CodexInjectError) as e:
             _inbox_append(sid, text)
@@ -448,7 +469,7 @@ class Broker:
                     if kind == "codex":
                         inject_codex_message(sid, text)
                     else:
-                        inject_user_message(sock, tok, text)
+                        inject_user_message(sid, sock, tok, text)
                 except (InjectError, CodexInjectError):
                     break  # still unreachable; keep this line and the rest
                 remaining.pop(0)

@@ -49,6 +49,13 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
        2. Telegram-driven sessions must run with `--dangerously-skip-permissions`
           (or an equivalent trusted mode). A peer message will *not* dismiss a
           native tool-permission dialog.
+     - `claude_inject.py` drops a marker in `paths.PENDING` (via `paths.queue_pending`)
+       right before writing the socket frame, same as Codex below — Claude Code's
+       own peer-message signals (`origin.kind`, `promptSource`, the wrapper text
+       preamble) turned out not to be a reliable enough match at `UserPromptSubmit`
+       on their own; a real duplicate-mirror bug traced back to exactly that. The
+       preamble-prefix check in `user_prompt_submit.py`/`render.tidy_prompt` is now
+       just a backstop for a pending marker that already expired.
    - **Codex**: no socket to capture — every Codex session registers with one
      shared local app-server daemon, so `codex_inject.py` just shells out
      `codex queue --thread <sid> --message <text>` (confirmed live: this starts
@@ -80,9 +87,12 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      running. `/status` reads it; a message sent while it exists gets a
      "queued behind the current turn" note. mtime = turn start.
    - `end/<sid>.json` — session_end → broker marks ended / deletes topic
-   - `pending/<sid>.json` — Codex only: texts `codex_inject.py` just queued,
-     awaiting the `UserPromptSubmit` echo (see item 3). TTL-pruned, never read
-     by Claude sessions.
+   - `pending/<sid>.json` — texts `claude_inject.py`/`codex_inject.py` just
+     queued (via `paths.queue_pending`), awaiting the `UserPromptSubmit` echo
+     (see item 3). TTL-pruned. `consume_pending_injection` matches Claude's
+     entries by substring (Code wraps the original text before the hook sees
+     it) and Codex's by the same check (trivially exact, since Codex doesn't
+     wrap at all).
    Change the `outbox` JSON shape and you must change both the hook that writes
    it (`_bridge_common.queue_outbox`) and `broker._read_outbox_item`.
 
@@ -100,11 +110,16 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
    the broker then drops. Add a pattern there, not in the hook.
    - **The one exception is the Telegram echo:** a message the user sent from the
      topic fires `UserPromptSubmit` too (Claude Code delivered the broker's
-     injection, wrapped in an "Another Claude session sent a message:" preamble).
-     `user_prompt_submit.py` drops it *before* queuing (still marks the turn
-     busy); `tidy_prompt` has the same prefix check as a backstop. Without this
-     every Telegram message double-posts in its topic. Codex has no such
-     wrapper to match against — see the `pending/` mechanism in items 3 and 4.
+     injection, wrapped in an "Another Claude session sent a message:" preamble
+     for Claude; verbatim, no wrapper, for Codex). `user_prompt_submit.py`/
+     `codex_user_prompt_submit.py` drop it *before* queuing (still mark the turn
+     busy) via `consume_pending_injection` against the `pending/` marker each
+     inject function writes first (items 3–4) — that's the authoritative check
+     for both agents now. The preamble-prefix check is only a backstop for an
+     already-expired marker; relying on it (or on Claude Code's
+     origin/promptSource fields) alone is what caused a real double-post bug.
+     Without *some* working version of this, every Telegram message
+     double-posts in its topic.
 
 ## Secrets
 

@@ -60,7 +60,7 @@ def test_inject_sends_auth_then_user_frame():
     path = os.path.join(tempfile.gettempdir(), f"ait-{uuid.uuid4().hex[:8]}.sock")
     try:
         srv = _Server(path)
-        inject_user_message(path, "mytoken", "run the tests")
+        inject_user_message("sid1", path, "mytoken", "run the tests")
         srv.join()
         assert srv.frames[0] == {"type": "auth", "token": "mytoken"}
         assert srv.frames[1] == {
@@ -72,13 +72,69 @@ def test_inject_sends_auth_then_user_frame():
             os.unlink(path)
 
 
+class _HangUpServer:
+    """Reads exactly the auth+user frames, then closes its end immediately —
+    reproducing the race where Claude Code hangs up right after consuming the
+    peer message, before the client gets to shutdown()/drain-read."""
+
+    def __init__(self, path: str) -> None:
+        self.frames: list[dict] = []
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.bind(path)
+        self._sock.listen(1)
+        self._t = threading.Thread(target=self._serve, daemon=True)
+        self._t.start()
+
+    def _serve(self) -> None:
+        conn, _ = self._sock.accept()
+        buf = b""
+        conn.settimeout(2.0)
+        try:
+            while len(self.frames) < 2:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    if line.strip():
+                        self.frames.append(json.loads(line))
+        except OSError:
+            pass
+        finally:
+            conn.close()  # hang up immediately, before the client tears down
+            self._sock.close()
+
+    def join(self) -> None:
+        self._t.join(timeout=3)
+
+
+@pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"),
+    reason="AF_UNIX isn't available on this platform's socket module",
+)
+def test_inject_succeeds_even_if_server_hangs_up_immediately():
+    path = os.path.join(tempfile.gettempdir(), f"ait-{uuid.uuid4().hex[:8]}.sock")
+    try:
+        srv = _HangUpServer(path)
+        inject_user_message("sid1", path, "mytoken", "run the tests")  # must not raise
+        srv.join()
+        assert srv.frames[1] == {
+            "type": "user",
+            "message": {"role": "user", "content": "run the tests"},
+        }
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
 def test_inject_missing_socket_raises(tmp_path):
     with pytest.raises(InjectError):
-        inject_user_message(str(tmp_path / "gone.sock"), "t", "hi")
+        inject_user_message("sid1", str(tmp_path / "gone.sock"), "t", "hi")
 
 
 def test_inject_requires_socket_and_token():
     with pytest.raises(InjectError):
-        inject_user_message("", "t", "hi")
+        inject_user_message("sid1", "", "t", "hi")
     with pytest.raises(InjectError):
-        inject_user_message("/x", "", "hi")
+        inject_user_message("sid1", "/x", "", "hi")

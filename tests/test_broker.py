@@ -24,6 +24,14 @@ def _register_codex(sid="cx1"):
     }))
 
 
+def _mark_telegram_touched(sid="s1"):
+    """So a test can send a message without tripping the one-time remote-session
+    notice (see test_first_telegram_message_gets_remote_notice_once for that)."""
+    rec = broker._read_session(sid)
+    rec["telegram_touched"] = True
+    broker._write_session(sid, rec)
+
+
 def test_registration_creates_topic(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
@@ -60,14 +68,36 @@ def test_topic_message_is_injected(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
     b._process_registrations()
+    _mark_telegram_touched()
 
     calls = []
-    monkeypatch.setattr(broker, "inject_user_message", lambda s, t, text: calls.append((s, t, text)))
+    monkeypatch.setattr(
+        broker, "inject_user_message", lambda sid, s, t, text: calls.append((s, t, text))
+    )
 
     b._handle_message({"message_thread_id": 101, "text": "run the build"})
     assert calls == [("/run/cc-socks/9.sock", "tok9", "run the build")]
     # session was idle -> no "queued behind current turn" note
     assert not any("작업 중" in t for _, t, *_ in fake.sent)
+
+
+def test_first_telegram_message_gets_remote_notice_once(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register()
+    b._process_registrations()
+
+    calls = []
+    monkeypatch.setattr(
+        broker, "inject_user_message", lambda sid, s, t, text: calls.append((s, t, text))
+    )
+
+    b._handle_message({"message_thread_id": 101, "text": "first"})
+    b._handle_message({"message_thread_id": 101, "text": "second"})
+
+    first_text, second_text = calls[0][2], calls[1][2]
+    assert first_text == broker.REMOTE_SESSION_NOTICE + "first"
+    assert second_text == "second"  # not repeated
+    assert json.loads(paths.session_file("s1").read_text())["telegram_touched"] is True
 
 
 def _mark_busy(sid="s1"):
@@ -104,6 +134,7 @@ def test_failed_injection_is_queued_for_retry(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
     b._process_registrations()
+    _mark_telegram_touched()
 
     def boom(*a):
         raise broker.InjectError("no socket")
@@ -117,7 +148,7 @@ def test_failed_injection_is_queued_for_retry(monkeypatch):
 
     # now the socket comes back; retry drains the queue
     ok = []
-    monkeypatch.setattr(broker, "inject_user_message", lambda s, t, text: ok.append(text))
+    monkeypatch.setattr(broker, "inject_user_message", lambda sid, s, t, text: ok.append(text))
     b._process_inbox()
     assert ok == ["later"]
     assert paths.inbox_file("s1").read_text().strip() == ""
@@ -264,6 +295,7 @@ def test_codex_topic_message_is_injected_via_codex_queue(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register_codex()
     b._process_registrations()
+    _mark_telegram_touched("cx1")
 
     calls = []
     monkeypatch.setattr(broker, "inject_codex_message", lambda sid, text: calls.append((sid, text)))
@@ -276,6 +308,7 @@ def test_codex_failed_injection_is_queued_for_retry(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register_codex()
     b._process_registrations()
+    _mark_telegram_touched("cx1")
 
     def boom(sid, text):
         raise broker.CodexInjectError("codex CLI not found on PATH")

@@ -6,8 +6,15 @@ back-and-forth in Telegram. Fast and non-blocking — just drops a file.
 
 A message the user sent from Telegram also fires this hook (the broker injected
 it as a peer prompt). The broker already queued that text, so re-queuing it here
-would double-post it in the topic. `_is_peer_injection` catches those and skips
-the mirror while still marking the turn busy.
+would double-post it in the topic.
+
+`bc.consume_pending_injection` (matched against claude_inject.py's
+paths.queue_pending call) is the authoritative check — it's the bridge's own
+bookkeeping, not a guess about Claude Code's internal format. `_is_peer_injection`
+below is kept only as a backstop for the case where the pending marker already
+expired (its TTL) or was never written for some other reason; a real bridge-caused
+duplicate mirror was traced back to relying on promptSource/origin/the text
+prefix alone, so don't remove the pending check in favor of just this.
 """
 
 from __future__ import annotations
@@ -40,7 +47,7 @@ def main() -> None:
     # (SessionStart fired, broker hasn't made the topic yet)
     if bc.session_file(sid).exists() or (bc.REGISTER / f"{sid}.json").exists():
         bc.mark_busy(sid)  # a turn is now running; Stop clears it
-        if not _is_peer_injection(ev, prompt):
+        if not (bc.consume_pending_injection(sid, prompt) or _is_peer_injection(ev, prompt)):
             bc.queue_outbox(sid, "user", prompt)
     bc.emit()
 

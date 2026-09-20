@@ -76,3 +76,19 @@ def test_consume_pending_injection_prunes_stale_entries():
 
     assert bc.consume_pending_injection("sidW", "old") is False  # too stale to match
     assert json.loads(f.read_text()) == []  # pruned along the way
+
+
+def test_consume_pending_injection_matches_claude_wrapped_prompt():
+    # Claude Code wraps the original text in a peer-message preamble before
+    # UserPromptSubmit sees it, unlike Codex which passes it through verbatim
+    # — so this must match by substring, not by exact equality.
+    f = bc.PENDING / "sidV.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps([{"text": "run the tests", "ts": time.time()}]))
+
+    wrapped = (
+        "Another Claude session sent a message:\nrun the tests\n\n"
+        "This came from another Claude session — not typed by your user..."
+    )
+    assert bc.consume_pending_injection("sidV", wrapped) is True
+    assert json.loads(f.read_text()) == []

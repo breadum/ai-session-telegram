@@ -106,6 +106,26 @@ def test_user_prompt_submit_skips_peer_injection_echo(hook_env):
     assert (bc.BUSY / "sess-P").exists()
 
 
+def test_user_prompt_submit_skips_echo_via_pending_marker_even_without_peer_prefix(hook_env):
+    # The pending marker (what claude_inject.py now writes before delivering)
+    # must be the authoritative check on its own — not just a backstop behind
+    # the preamble-prefix heuristic, which is what actually missed a real
+    # peer message in production. Prove it by using a "wrapper" that doesn't
+    # match _PEER_PREFIXES at all.
+    bc.write_json_atomic(bc.session_file("sess-Q"), {"session_id": "sess-Q", "status": "active"})
+    bc.PENDING.mkdir(parents=True, exist_ok=True)
+    (bc.PENDING / "sess-Q.json").write_text(
+        json.dumps([{"text": "지금 잘 돌고있나", "ts": time.time()}])
+    )
+    wrapped = "Some future Claude Code wrapper format:\n지금 잘 돌고있나\n(disclaimer text)"
+
+    r = run_hook("user_prompt_submit.py", {"session_id": "sess-Q", "prompt": wrapped}, hook_env)
+    assert r.returncode == 0
+    assert not (bc.OUTBOX / "sess-Q").exists()
+    assert (bc.BUSY / "sess-Q").exists()
+    assert json.loads((bc.PENDING / "sess-Q.json").read_text()) == []  # consumed
+
+
 def test_user_prompt_submit_skips_system_prompt_source(hook_env):
     bc.write_json_atomic(bc.session_file("sess-S"), {"session_id": "sess-S", "status": "active"})
     r = run_hook(

@@ -6,8 +6,12 @@ kept separate from the code checkout so the daemon and hooks share one location.
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from pathlib import Path
+
+from ._procutil import locked
 
 
 def _root() -> Path:
@@ -33,8 +37,8 @@ INBOX = ROOT / "inbox"            # <sid>.jsonl : commands that failed to inject
 OUTBOX = ROOT / "outbox"          # <sid>/<ts>.json : queued outbound messages
 END = ROOT / "end"                # session_end drops <sid>.json here
 BUSY = ROOT / "busy"              # <sid> present : a turn is in progress
-PENDING = ROOT / "pending"        # <sid>.json : texts this bridge just queued into a Codex
-                                   # session, awaiting the UserPromptSubmit echo (see codex_inject.py)
+PENDING = ROOT / "pending"        # <sid>.json : texts this bridge just queued into a session,
+                                   # awaiting the UserPromptSubmit echo (see queue_pending below)
 
 ALL_DIRS = [STATE, REGISTER, SESSIONS, THREADS, INBOX, OUTBOX, END, BUSY, PENDING]
 
@@ -66,3 +70,31 @@ def busy_file(sid: str) -> Path:
 
 def pending_file(sid: str) -> Path:
     return PENDING / f"{sid}.json"
+
+
+_PENDING_TTL_S = 60  # keep in sync with hooks/_bridge_common.py's reader
+
+
+def queue_pending(sid: str, text: str) -> None:
+    """Record `text` as something this bridge is about to inject into session
+    `sid`, so the resulting UserPromptSubmit echo can be recognized (by
+    hooks/_bridge_common.py's consume_pending_injection) and not re-mirrored
+    into the topic as if it were new. Shared by claude_inject.py and
+    codex_inject.py; call this before actually delivering the message, so a
+    delivery that fails after this point still doesn't get double-mirrored
+    on retry.
+    """
+    f = pending_file(sid)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f, "a+", encoding="utf-8") as fh, locked(fh):
+        fh.seek(0)
+        try:
+            items = json.loads(fh.read() or "[]")
+        except json.JSONDecodeError:
+            items = []
+        now = time.time()
+        items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
+        items.append({"text": text, "ts": now})
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps(items, ensure_ascii=False))

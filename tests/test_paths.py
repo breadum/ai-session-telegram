@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 from ai_session_telegram import paths
@@ -35,3 +37,21 @@ def test_helper_paths_are_relative_to_root():
     assert paths.thread_file("42") == paths.THREADS / "42"
     assert paths.busy_file("abc") == paths.BUSY / "abc"
     assert paths.pending_file("abc") == paths.PENDING / "abc.json"
+
+
+def test_queue_pending_appends_and_prunes_stale(bridge_home):
+    paths.queue_pending("sid1", "one")
+    paths.queue_pending("sid1", "two")
+
+    items = json.loads(paths.pending_file("sid1").read_text(encoding="utf-8"))
+    assert [it["text"] for it in items] == ["one", "two"]
+
+    # a stale entry from a previous run gets pruned on the next write
+    stale = {"text": "old", "ts": time.time() - 999}
+    fresh = json.loads(paths.pending_file("sid1").read_text(encoding="utf-8"))
+    paths.pending_file("sid1").write_text(
+        json.dumps([stale, *fresh]), encoding="utf-8"
+    )
+    paths.queue_pending("sid1", "three")
+    items = json.loads(paths.pending_file("sid1").read_text(encoding="utf-8"))
+    assert [it["text"] for it in items] == ["one", "two", "three"]
