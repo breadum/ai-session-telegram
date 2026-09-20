@@ -7,7 +7,15 @@ import time
 from pathlib import Path
 
 import _bridge_common as bc
+import pytest
 from conftest import transcript
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch):
+    # last_assistant_text now unconditionally pauses between re-reads (see
+    # its docstring) — real in production, pointless slowdown in tests.
+    monkeypatch.setattr(bc.time, "sleep", lambda s: None)
 
 
 def test_queue_outbox_writes_role_and_text():
@@ -155,6 +163,43 @@ def test_last_assistant_text_retries_when_final_text_message_is_missing_outright
     monkeypatch.setattr(bc.time, "sleep", lambda s: None)
 
     assert bc.last_assistant_text(str(t)) == "progress report: 67/2074 done"
+
+
+def test_last_assistant_text_keeps_waiting_even_once_some_text_is_already_found(
+    tmp_path, monkeypatch
+):
+    # Real bug, found from a live transcript: a multi-segment turn had its
+    # first two narrated segments on disk already, and a first-read-wins
+    # version of last_assistant_text returned just those two, silently
+    # dropping everything written after — including the real closing
+    # summary — because "some text" used to be treated as "read complete".
+    # Simulate the third (real final) segment landing on the last re-read.
+    before_text = (
+        json.dumps({"type": "user", "message": {"role": "user", "content": "status?"}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant",
+            "content": [{"type": "text", "text": "Now update the emoji constant:"}]}}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"role": "assistant",
+            "content": [{"type": "text", "text": "Now add a test:"}]}}) + "\n"
+    )
+    after_text = before_text + json.dumps({"type": "assistant", "message": {"role": "assistant",
+        "content": [{"type": "text", "text": "반영 완료 (169개 테스트 통과)"}]}}) + "\n"
+    t = tmp_path / "t.jsonl"
+    t.write_text(before_text, encoding="utf-8")
+
+    reads = {"n": 0}
+    real_read_text = Path.read_text
+
+    def flaky_read_text(self, *a, **k):
+        reads["n"] += 1
+        if reads["n"] >= 3:
+            t.write_text(after_text, encoding="utf-8")
+        return real_read_text(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    assert bc.last_assistant_text(str(t)) == (
+        "Now update the emoji constant:\n\nNow add a test:\n\n반영 완료 (169개 테스트 통과)"
+    )
 
 
 def test_last_assistant_text_gives_up_after_retries_exhausted(tmp_path, monkeypatch):

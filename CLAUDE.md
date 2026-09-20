@@ -101,14 +101,29 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      apart) when only the last line fails to parse — a real bug had this
      silently drop the turn's actual conclusion while earlier, already-
      flushed lines (progress narration) still went out looking complete.
-     A second, nastier shape of the same race: the concluding text message
-     can be missing from the file *outright* (not torn — Stop just fires
-     before that line is appended at all), which is indistinguishable from a
-     genuine tool-only turn at read time. `last_assistant_text` itself now
-     retries (same handful of tens-of-ms attempts) whenever a scan finds
-     tool calls but zero text, before trusting that as the real answer —
-     confirmed from a live transcript where a long final report reliably
-     lost this race and mirrored as a bare tool-name summary instead.
+     Two nastier shapes of the same race, both confirmed from live
+     transcripts, cost real answers before `last_assistant_text` was changed
+     to guard against them:
+     - The concluding text message missing from the file *outright* (not
+       torn — Stop just fires before that line is appended at all), which is
+       indistinguishable from a genuine tool-only turn at read time. A long
+       final report reliably lost this way, mirrored as a bare tool-name
+       summary instead.
+     - A multi-segment turn with its first two or three narrated segments
+       already on disk and the rest — including the real closing summary —
+       still landing. The first version of the fix above only re-read when a
+       scan found *zero* text, on the assumption that some text meant the
+       read was complete; that's false, and a real reply got truncated to
+       its first two segments this way.
+     Content-based heuristics (retry only when text is missing; trust it once
+     any text shows up) cover one shape but not the other, and checking the
+     file's mtime doesn't help either — Stop fires right after Claude Code's
+     own last write, so the mtime is "suspiciously fresh" for nearly every
+     turn, race or not. So `last_assistant_text` now unconditionally re-reads
+     a fixed, small number of times with a real pause between them and
+     trusts only the last one — a blind debounce, since a write that hasn't
+     started yet at check time leaves nothing to detect. Costs a fixed
+     ~150ms on every Stop, race or not.
    - `inbox/<sid>.jsonl` — commands that *failed* to inject, retried each loop
    - `busy/<sid>` — present between `UserPromptSubmit` and `Stop`: a turn is
      running. `/status` reads it; a message sent while it exists gets a

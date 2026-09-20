@@ -58,10 +58,15 @@ REMOTE_SESSION_NOTICE = (
 )
 
 # Reacted onto the user's own message once it's handed to the session, so
-# there's an immediate "received, now working on it" signal even when the
-# reply itself is still a few seconds out — Telegram's reaction set is fixed,
-# this one's in it.
-RECEIVED_REACTION = "👨‍💻"
+# there's an immediate signal even when the reply itself is still a few
+# seconds out. Claude gets the confirmed-delivery reaction (its socket write
+# either succeeds or raises); Codex only ever gets the queued one, never the
+# confirmed one — codex queue succeeding just means the thread id was once
+# real, not that a live session picked the message up (see codex_inject.py),
+# so it can't honestly claim "received". set_message_reaction is best-effort
+# either way (silently no-ops if an emoji isn't in Telegram's fixed set).
+RECEIVED_REACTION = "🐮"
+QUEUED_REACTION = "⏳"
 
 # Telegram's fixed set of forum-topic icon colors (createForumTopic's
 # icon_color — one of exactly 6 presets, no arbitrary hex). Kept distinct per
@@ -387,7 +392,8 @@ class Broker:
             return
         message_id = msg.get("message_id")
         if message_id is not None:
-            self.tg.set_message_reaction(self.cfg.chat_id, message_id, RECEIVED_REACTION)
+            reaction = QUEUED_REACTION if kind == "codex" else RECEIVED_REACTION
+            self.tg.set_message_reaction(self.cfg.chat_id, message_id, reaction)
         if busy is not None:
             self._say(thread_id, f"⏳ Busy ({busy}s) — this message will be handled once the current turn finishes.")
 

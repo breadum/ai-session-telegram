@@ -148,6 +148,15 @@ def emit(obj: dict | None = None) -> None:
 # transcript
 # --------------------------------------------------------------------------
 
+# last_assistant_text: always re-read this many times (with a real pause
+# between reads) before trusting the transcript, to give Claude Code's own
+# writer a chance to land the turn's last append before Stop's hook commits
+# to whatever it's already seen. See that function's docstring for why this
+# can't be made conditional on what the first read finds.
+_SETTLE_ATTEMPTS = 3
+_SETTLE_INTERVAL_S = 0.08
+
+
 def _is_turn_start(obj: dict) -> bool:
     """A real user (or peer-injected) prompt, not a tool_result. Both are
     recorded as type=="user", but only a genuine prompt has a plain string
@@ -211,12 +220,26 @@ def last_assistant_text(transcript_path: str) -> str | None:
     the transcript file yet. `_read_transcript_objs` only catches this when
     the last line is torn (fails to parse); when Stop fires a beat before
     that line is written *at all*, the file simply looks like it ends one
-    message early — no parse error to retry on. A long final response (more
-    to serialize, more chance Stop wins the race) reliably lost this way
-    reads as "ran tools, said nothing", same shape as a real tool-only turn.
-    So when a scan finds tool calls but no text at all, re-read a few times
-    before trusting that as the real answer — a genuine tool-only turn just
-    costs a few tens of ms extra before its summary goes out.
+    message early — no parse error to retry on.
+
+    An earlier version of this function only re-read when the scan found
+    zero text at all, on the assumption that *some* text meant the read was
+    complete. Live data proved that wrong: a turn with several narrated
+    tool-call segments can have the first two or three already on disk and
+    the rest — including the real closing summary — still landing, so the
+    scan finds non-empty `all_texts` and stops right there, silently
+    dropping everything written after that read. There's no way to tell
+    "this is genuinely all of it" from "the writer just hasn't gotten to the
+    rest yet" by content alone — and checking the file's mtime doesn't save
+    us either: Stop fires right after Claude Code's *own* last write, so the
+    mtime is "suspiciously fresh" for practically every turn, race or not,
+    and a write that hasn't started yet at check time leaves no trace to
+    detect. So this unconditionally re-reads a fixed, small number of times
+    with a real pause between them and trusts only the last one — a blind
+    debounce, not a targeted one, but the only kind that can catch a race
+    whose next write hasn't happened yet. Costs a fixed ~150ms on every Stop,
+    race or not; cheap next to how expensive silently mangling a turn's real
+    answer turned out to be in practice (confirmed twice from live data).
     """
     p = Path(transcript_path) if transcript_path else None
     if not p or not p.exists():
@@ -224,7 +247,7 @@ def last_assistant_text(transcript_path: str) -> str | None:
 
     all_texts: list[str] = []
     tool_names: list[str] = []
-    for attempt in range(5):
+    for attempt in range(_SETTLE_ATTEMPTS):
         objs = _read_transcript_objs(p)
 
         turn_start = 0
@@ -254,9 +277,8 @@ def last_assistant_text(transcript_path: str) -> str | None:
                 elif blk.get("type") == "tool_use":
                     tool_names.append(blk.get("name") or "?")
 
-        if all_texts or not tool_names or attempt == 4:
-            break
-        time.sleep(0.05)
+        if attempt < _SETTLE_ATTEMPTS - 1:
+            time.sleep(_SETTLE_INTERVAL_S)
 
     if all_texts:
         return "\n\n".join(all_texts)
