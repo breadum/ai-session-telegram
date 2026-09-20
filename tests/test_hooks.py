@@ -87,7 +87,7 @@ def test_stop_hook_summarizes_tool_only_turn(hook_env, tmp_path):
     r = run_hook("stop.py", {"session_id": "sess-K", "transcript_path": str(t)}, hook_env)
     assert r.returncode == 0
     files = list((bc.OUTBOX / "sess-K").iterdir())
-    assert json.loads(files[0].read_text())["text"] == "🔧 텍스트 응답 없이 도구를 실행했습니다: Bash"
+    assert json.loads(files[0].read_text())["text"] == "🔧 Ran tools without a text response: Bash"
 
 
 def test_stop_hook_forwards_ai_title(hook_env, tmp_path):

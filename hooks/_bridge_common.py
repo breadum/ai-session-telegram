@@ -246,7 +246,7 @@ def last_assistant_text(transcript_path: str) -> str | None:
         for name in tool_names:
             counts[name] = counts.get(name, 0) + 1
         summary = ", ".join(f"{n}×{c}" if c > 1 else n for n, c in counts.items())
-        return f"🔧 텍스트 응답 없이 도구를 실행했습니다: {summary}"
+        return f"🔧 Ran tools without a text response: {summary}"
     return None
 
 

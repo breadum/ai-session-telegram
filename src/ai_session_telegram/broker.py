@@ -51,9 +51,10 @@ SPECIAL = {"/status", "/sessions", "/help", "/exit", "/title"}
 # "once touched from Telegram, stay in that mode" possible without a Claude
 # Code API to actually disable a tool from outside.
 REMOTE_SESSION_NOTICE = (
-    "[원격 세션 안내] 이 세션은 지금부터 텔레그램으로도 원격 조작됩니다. 사용자가 "
-    "데스크탑 앞에 없을 수 있으니, 이후로는 AskUserQuestion 같은 대화형 UI 대신 "
-    "일반 텍스트로 질문하고 답을 기다려 주세요.\n\n"
+    "[Remote session notice] This session is now also being operated remotely "
+    "via Telegram. The user may not be at their desktop, so from now on, ask "
+    "questions as plain text and wait for a reply instead of interactive UI "
+    "like AskUserQuestion.\n\n"
 )
 
 # Reacted onto the user's own message once it's handed to the session, so
@@ -312,9 +313,10 @@ class Broker:
                 f"cwd: {cwd}\n"
                 f"id: {sid}\n\n"
                 + (
-                    "여기에 메시지를 보내면 이 세션에 바로 전달됩니다.\n"
+                    "Send a message here and it goes straight into this session.\n"
                     if can_inject
-                    else "⚠️ 이 세션은 소켓 정보가 없어 여기서 명령을 넣을 수 없습니다 (미러 전용).\n"
+                    else "⚠️ This session has no socket info, so commands can't be "
+                    "injected here (mirror-only).\n"
                 )
                 + "/status  /exit  /title <text>"
             )
@@ -362,7 +364,7 @@ class Broker:
 
         kind = rec.get("kind", "claude")
         if kind != "codex" and not (rec.get("messaging_socket") and rec.get("messaging_token")):
-            self._say(thread_id, "이 세션은 소켓 정보가 없어 메시지를 넣을 수 없습니다 (미러 전용).")
+            self._say(thread_id, "This session has no socket info, so messages can't be injected (mirror-only).")
             return
 
         if not rec.get("telegram_touched"):
@@ -379,25 +381,25 @@ class Broker:
             log.info("injected -> %s (%d chars)", rec["label"], len(text))
         except (InjectError, CodexInjectError) as e:
             _inbox_append(sid, text)
-            self._say(thread_id, "⚠️ 세션에 바로 연결하지 못했습니다. 큐에 넣고 재시도합니다.")
+            self._say(thread_id, "⚠️ Couldn't reach the session directly. Queued for retry.")
             log.warning("inject failed for %s: %s (queued)", rec["label"], e)
             return
         message_id = msg.get("message_id")
         if message_id is not None:
             self.tg.set_message_reaction(self.cfg.chat_id, message_id, RECEIVED_REACTION)
         if busy is not None:
-            self._say(thread_id, f"⏳ 작업 중 ({busy}s) — 이 메시지는 현재 턴이 끝난 뒤 처리됩니다.")
+            self._say(thread_id, f"⏳ Busy ({busy}s) — this message will be handled once the current turn finishes.")
 
     def _handle_special(self, sid: str, rec: dict, thread_id: int, cmd: str) -> None:
         head = cmd.split()[0]
         if head == "/help":
             self._say(
                 thread_id,
-                "메시지를 그냥 보내면 이 세션에 전달됩니다.\n"
-                "/status        상태 보기\n"
-                "/exit          이 토픽 삭제 (로컬 세션 기록은 유지)\n"
-                "/title <text>  토픽 이름 변경\n"
-                "/sessions      전체 세션 목록",
+                "Just send a message to deliver it to this session.\n"
+                "/status        show status\n"
+                "/exit          delete this topic (local session record is kept)\n"
+                "/title <text>  rename the topic\n"
+                "/sessions      list all sessions",
             )
         elif head == "/title":
             new = cmd[len("/title"):].strip()
@@ -418,7 +420,7 @@ class Broker:
                 delivery = "ok" if reachable else ("missing" if sock else "unknown")
             pending = len(_inbox_lines(sid))
             busy = _busy_seconds(sid)
-            activity = f"🔧 작업 중 ({busy}s)" if busy is not None else "idle"
+            activity = f"🔧 busy ({busy}s)" if busy is not None else "idle"
             self._say(
                 thread_id,
                 f"label: {rec['label']}\nstatus: {rec['status']}"
@@ -443,7 +445,7 @@ class Broker:
             _inbox_rewrite(sid, [])
             _wipe_outbox(sid)
             if not deleted:
-                self._say(thread_id, "이 토픽은 삭제하지 못했습니다 — 수동으로 지워주세요.")
+                self._say(thread_id, "Couldn't delete this topic — remove it manually.")
             log.info("exited %s (topic %s deleted=%s, record kept)", rec["label"], thread_id, deleted)
 
     def _reply_general(self, msg: dict) -> None:

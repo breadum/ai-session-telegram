@@ -78,7 +78,7 @@ def test_topic_message_is_injected(monkeypatch):
     b._handle_message({"message_thread_id": 101, "text": "run the build"})
     assert calls == [("/run/cc-socks/9.sock", "tok9", "run the build")]
     # session was idle -> no "queued behind current turn" note
-    assert not any("작업 중" in t for _, t, *_ in fake.sent)
+    assert not any("Busy" in t for _, t, *_ in fake.sent)
 
 
 def test_successful_injection_reacts_to_the_original_message(monkeypatch):
@@ -135,7 +135,7 @@ def test_message_while_busy_warns_it_is_queued(monkeypatch):
     monkeypatch.setattr(broker, "inject_user_message", lambda *a: None)
 
     b._handle_message({"message_thread_id": 101, "text": "one more thing"})
-    assert any("작업 중" in t and "현재 턴" in t for _, t, *_ in fake.sent)
+    assert any("Busy" in t and "current turn" in t for _, t, *_ in fake.sent)
 
 
 def test_status_reports_activity(monkeypatch):
@@ -149,7 +149,7 @@ def test_status_reports_activity(monkeypatch):
     fake.sent.clear()
     _mark_busy()
     b._handle_message({"message_thread_id": 101, "text": "/status"})
-    assert any("activity: 🔧 작업 중" in t for _, t, *_ in fake.sent)
+    assert any("activity: 🔧 busy" in t for _, t, *_ in fake.sent)
 
 
 def test_failed_injection_is_queued_for_retry(monkeypatch):
@@ -166,7 +166,7 @@ def test_failed_injection_is_queued_for_retry(monkeypatch):
 
     lines = paths.inbox_file("s1").read_text().splitlines()
     assert json.loads(lines[0])["text"] == "later"
-    assert any("재시도" in t for _, t, *_ in fake.sent)
+    assert any("retry" in t for _, t, *_ in fake.sent)
 
     # now the socket comes back; retry drains the queue
     ok = []
@@ -310,7 +310,7 @@ def test_codex_registration_creates_topic_without_a_socket(monkeypatch):
     assert fake.icon_colors == [broker.ICON_COLOR["codex"]]
     assert broker.ICON_COLOR["codex"] != broker.ICON_COLOR["claude"]
     header = next(t for _, t, *_ in fake.sent if "proj" in t)
-    assert "바로 전달됩니다" in header  # can_inject even with no socket recorded
+    assert "goes straight into this session" in header  # can_inject even with no socket recorded
 
 
 def test_codex_topic_message_is_injected_via_codex_queue(monkeypatch):
@@ -340,7 +340,7 @@ def test_codex_failed_injection_is_queued_for_retry(monkeypatch):
 
     lines = paths.inbox_file("cx1").read_text().splitlines()
     assert json.loads(lines[0])["text"] == "later"
-    assert any("재시도" in t for _, t, *_ in fake.sent)
+    assert any("retry" in t for _, t, *_ in fake.sent)
 
     ok = []
     monkeypatch.setattr(broker, "inject_codex_message", lambda sid, text: ok.append(text))

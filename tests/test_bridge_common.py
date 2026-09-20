@@ -84,7 +84,7 @@ def test_last_assistant_text_summarizes_tool_calls_when_no_text(tmp_path):
             {"type": "tool_use", "name": "Read", "input": {}},
         ]}},
     ])
-    assert bc.last_assistant_text(str(t)) == "🔧 텍스트 응답 없이 도구를 실행했습니다: Bash×2, Read"
+    assert bc.last_assistant_text(str(t)) == "🔧 Ran tools without a text response: Bash×2, Read"
 
 
 def test_last_assistant_text_retries_a_torn_final_write(tmp_path, monkeypatch):
