@@ -64,6 +64,29 @@ def test_registration_refreshes_socket_on_resume(monkeypatch):
     assert len(fake.created) == 1  # no second topic
 
 
+def test_codex_resume_removes_legacy_topic_prefix(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    fake.edited.clear()
+
+    _register_codex()
+    b._process_registrations()
+
+    assert fake.edited == [(-1001, 101, "proj …")]
+
+
+def test_startup_migrates_legacy_codex_topic_names(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    fake.edited.clear()
+
+    b._migrate_codex_topic_names()
+
+    assert fake.edited == [(-1001, 101, "proj …")]
+
+
 def test_topic_message_is_injected(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
@@ -241,6 +264,19 @@ def test_message_to_ended_session_is_ignored(monkeypatch):
     assert any("ended" in t for _, t, *_ in fake.sent)
 
 
+def test_codex_session_end_deletes_topic_even_when_option_is_off(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    (paths.END / "cx1.json").write_text(json.dumps({"session_id": "cx1"}))
+
+    b._process_end()
+
+    assert fake.deleted == [(-1001, 101)]
+    assert not paths.session_file("cx1").exists()
+    assert not paths.thread_file(101).exists()
+
+
 def test_outbox_titles_topic_from_ai_title(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
@@ -306,7 +342,7 @@ def test_codex_registration_creates_topic_without_a_socket(monkeypatch):
     rec = json.loads(paths.session_file("cx1").read_text())
     assert rec["kind"] == "codex"
     assert rec["thread_id"] == 101
-    assert fake.created == [(-1001, "[codex] proj …")]
+    assert fake.created == [(-1001, "proj …")]
     assert fake.icon_colors == [broker.ICON_COLOR["codex"]]
     assert broker.ICON_COLOR["codex"] != broker.ICON_COLOR["claude"]
     header = next(t for _, t, *_ in fake.sent if "proj" in t)
@@ -362,6 +398,25 @@ def test_codex_failed_injection_is_queued_for_retry(monkeypatch):
     b._process_inbox()
     assert ok == ["later"]
     assert paths.inbox_file("cx1").read_text().strip() == ""
+
+
+def test_codex_gone_session_deletes_stale_topic(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    _mark_telegram_touched("cx1")
+
+    def gone(sid, text):
+        raise broker.CodexSessionGoneError("no thread named cx1")
+
+    monkeypatch.setattr(broker, "inject_codex_message", gone)
+    b._handle_message({"message_thread_id": 101, "text": "continue"})
+
+    assert fake.deleted == [(-1001, 101)]
+    assert not paths.session_file("cx1").exists()
+    assert not paths.thread_file(101).exists()
+    assert not paths.pending_file("cx1").exists()
+    assert not paths.inbox_file("cx1").exists()
 
 
 def test_registration_backfills_kind_on_legacy_record(monkeypatch):

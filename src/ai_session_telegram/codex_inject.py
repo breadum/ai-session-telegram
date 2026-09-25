@@ -28,6 +28,10 @@ class CodexInjectError(Exception):
     """`codex queue` failed, timed out, or the CLI isn't on PATH."""
 
 
+class CodexSessionGoneError(CodexInjectError):
+    """The app-server no longer knows the Codex session thread."""
+
+
 def inject_codex_message(sid: str, text: str, *, timeout: float = 10.0) -> None:
     """Queue one message for the Codex session `sid`.
 
@@ -50,6 +54,16 @@ def inject_codex_message(sid: str, text: str, *, timeout: float = 10.0) -> None:
     except subprocess.TimeoutExpired as e:
         raise CodexInjectError(f"codex queue timed out after {timeout}s") from e
     if proc.returncode != 0:
-        raise CodexInjectError(
-            (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
-        )
+        detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
+        folded = detail.casefold()
+        if any(
+            marker in folded
+            for marker in (
+                "no thread named",
+                "unknown thread",
+                "thread not found",
+                "thread does not exist",
+            )
+        ):
+            raise CodexSessionGoneError(detail)
+        raise CodexInjectError(detail)

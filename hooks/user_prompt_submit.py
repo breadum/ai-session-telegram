@@ -28,6 +28,27 @@ _PEER_PREFIXES = (
 )
 
 
+def _looks_like_agent_handoff(prompt: str) -> bool:
+    """Recognize the narrow shape of AI-generated orchestration prompts.
+
+    Claude's hook payload does not expose whether a prompt was authored by a
+    human or by another agent. Keep this intentionally conservative so normal
+    user prompts remain user messages.
+    """
+    folded = prompt.casefold().lstrip()
+    if folded.startswith(("you are ", "당신은 ")) and (
+        "agent" in folded or "에이전트" in folded
+    ):
+        return True
+    return any(
+        marker in folded
+        for marker in (
+            "always report to the user",
+            "report progress and eta to the user",
+        )
+    )
+
+
 def _is_peer_injection(ev: dict, prompt: str) -> bool:
     if ev.get("promptSource") == "system":
         return True
@@ -48,7 +69,8 @@ def main() -> None:
     if bc.session_file(sid).exists() or (bc.REGISTER / f"{sid}.json").exists():
         bc.mark_busy(sid)  # a turn is now running; Stop clears it
         if not (bc.consume_pending_injection(sid, prompt) or _is_peer_injection(ev, prompt)):
-            bc.queue_outbox(sid, "user", prompt)
+            role = "assistant" if _looks_like_agent_handoff(prompt) else "user"
+            bc.queue_outbox(sid, role, prompt)
     bc.emit()
 
 

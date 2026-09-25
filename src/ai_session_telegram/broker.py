@@ -29,7 +29,7 @@ from . import paths
 from ._procutil import is_alive as _alive
 from ._procutil import locked as _file_locked
 from .claude_inject import InjectError, inject_user_message
-from .codex_inject import CodexInjectError, inject_codex_message
+from .codex_inject import CodexInjectError, CodexSessionGoneError, inject_codex_message
 from .config import Config
 from .render import tidy_prompt, to_telegram_html
 from .telegram import Telegram, TelegramError, send_with_retry
@@ -200,6 +200,7 @@ class Broker:
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
         self._init_offset()
+        self._migrate_codex_topic_names()
         log.info("broker up (chat_id=%s, offset=%s)", self.cfg.chat_id, self._offset)
         while self._running and not paths.STOP_FLAG.exists():
             try:
@@ -242,6 +243,21 @@ class Broker:
 
     _MSG_FIELDS = ("messaging_socket", "messaging_token", "pid")
 
+    def _migrate_codex_topic_names(self) -> None:
+        """Remove the legacy ``[codex]`` prefix from automatic topic names."""
+        for f in sorted(paths.SESSIONS.glob("*.json")):
+            rec = _read_session(f.stem)
+            if (
+                not rec
+                or rec.get("kind") != "codex"
+                or rec.get("titled")
+                or rec.get("thread_id") is None
+            ):
+                continue
+            name = f"{rec.get('base') or rec['label']} …"
+            if self.tg.edit_forum_topic(self.cfg.chat_id, rec["thread_id"], name):
+                log.info("migrated Codex topic %s to %s", rec["thread_id"], name)
+
     def _process_registrations(self) -> None:
         for f in sorted(paths.REGISTER.glob("*.json")):
             try:
@@ -273,6 +289,18 @@ class Broker:
                     # session's, which still doesn't send one — stays "claude").
                     existing["kind"] = req["kind"]
                     changed = True
+                if (
+                    existing.get("kind") == "codex"
+                    and not existing.get("titled")
+                    and existing.get("thread_id") is not None
+                ):
+                    # Migrate topics created before the kind prefix was
+                    # removed. Never touch a topic that was manually or
+                    # automatically titled afterward.
+                    name = f"{existing.get('base') or existing['label']} …"
+                    self.tg.edit_forum_topic(
+                        self.cfg.chat_id, existing["thread_id"], name
+                    )
                 if changed:
                     _write_session(sid, existing)
                     log.info("refreshed messaging socket for %s", existing.get("label", sid))
@@ -283,7 +311,9 @@ class Broker:
             cwd = req.get("cwd", "?")
             base = req.get("base") or label
             kind = req.get("kind", "claude")
-            initial = f"{'[codex] ' if kind == 'codex' else ''}{base} …"
+            # Agent kind is already visible through Telegram's topic icon
+            # color; keep the full working-directory label available.
+            initial = f"{base} …"
             try:
                 thread_id = self.tg.create_forum_topic(
                     self.cfg.chat_id, initial, icon_color=ICON_COLOR.get(kind)
@@ -388,6 +418,13 @@ class Broker:
             else:
                 inject_user_message(sid, rec["messaging_socket"], rec["messaging_token"], text)
             log.info("injected -> %s (%d chars)", rec["label"], len(text))
+        except CodexSessionGoneError as e:
+            # A Codex SessionEnd hook is not guaranteed to reach us (for
+            # example after a terminal/process interruption).  If the app
+            # server explicitly says the thread is gone, this topic is stale:
+            # remove it now instead of retrying a command forever.
+            self._cleanup_gone_codex_session(sid, rec, thread_id, e)
+            return
         except (InjectError, CodexInjectError) as e:
             _inbox_append(sid, text)
             self._say(thread_id, "⚠️ Couldn't reach the session directly. Queued for retry.")
@@ -460,6 +497,19 @@ class Broker:
     def _reply_general(self, msg: dict) -> None:
         chat_id = msg["chat"]["id"]
         self.tg.send_message(chat_id, "Send messages inside a session's topic, not here.")
+
+    def _cleanup_gone_codex_session(
+        self, sid: str, rec: dict, thread_id: int, error: Exception
+    ) -> None:
+        deleted = self.tg.delete_forum_topic(self.cfg.chat_id, thread_id)
+        _forget_session(sid, thread_id)
+        log.warning(
+            "Codex session %s is gone -> stale topic %s deleted=%s (%s)",
+            sid,
+            thread_id,
+            deleted,
+            error,
+        )
 
     # --- inbox retry -> session ---------------------------------
 
@@ -552,7 +602,15 @@ class Broker:
             sid = f.stem
             rec = _read_session(sid)
             tid = rec.get("thread_id") if rec else None
-            if rec and self.cfg.delete_topic_on_end:
+            # Codex sessions do not have a socket/process identity that the
+            # broker can reconcile after the hook runs.  Once Codex tells us
+            # the main thread ended, keeping its topic only leaves a dead
+            # topic in the forum, so Codex cleanup is unconditional.  Claude
+            # keeps the historical opt-in behavior.
+            delete_topic = rec and (
+                self.cfg.delete_topic_on_end or rec.get("kind") == "codex"
+            )
+            if delete_topic:
                 if tid is not None:
                     self.tg.delete_forum_topic(self.cfg.chat_id, tid)
                 _forget_session(sid, tid)
