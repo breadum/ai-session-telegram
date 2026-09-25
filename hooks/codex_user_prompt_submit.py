@@ -17,6 +17,18 @@ from __future__ import annotations
 import _bridge_common as bc
 
 
+def _looks_like_agent_handoff(prompt: str) -> bool:
+    """Match the structured task header used by the session handoff."""
+    header = prompt.lstrip().splitlines()[0].casefold()
+    header = header.removeprefix("🐮 ")
+    # ponytail: exact header matching; pass source metadata if the handoff format changes.
+    return (
+        header.startswith("저장소 ")
+        and ". 역할은 " in header
+        and ". task " in header
+    )
+
+
 def main() -> None:
     ev = bc.read_event()
     sid = ev.get("session_id") or ""
@@ -28,7 +40,8 @@ def main() -> None:
     if bc.session_file(sid).exists() or (bc.REGISTER / f"{sid}.json").exists():
         bc.mark_busy(sid)  # a turn is now running; Stop clears it
         if not bc.consume_pending_injection(sid, prompt):
-            bc.queue_outbox(sid, "user", prompt)
+            role = "assistant" if _looks_like_agent_handoff(prompt) else "user"
+            bc.queue_outbox(sid, role, prompt)
     bc.emit()
 
 
