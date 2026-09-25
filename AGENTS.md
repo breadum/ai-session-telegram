@@ -224,9 +224,11 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
 8. **Codex stale sessions are cleaned up on explicit thread failure.** If
    `codex queue` reports that the thread is unknown or does not exist,
    `CodexSessionGoneError` triggers deletion of the stale topic and removal of
-   its thread mapping, session record, pending marker, inbox, and outbox. A
-   temporary queue failure remains retryable. A missing `SessionEnd` hook must
-   not leave a dead topic retrying forever.
+   its thread mapping, session record, pending marker, inbox, and outbox only
+   after the session/topic mapping is verified and Telegram confirms deletion.
+   Pending local work is explicitly discarded and logged after this definitive
+   stale decision; a temporary queue or Telegram failure remains retryable. A
+   missing `SessionEnd` hook must not leave a dead topic retrying forever.
 
 9. **Topic migrations protect user titles.** Codex automatic topic names no
    longer include a `[codex]` prefix because icon color identifies the agent.
