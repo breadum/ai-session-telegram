@@ -18,13 +18,14 @@
 [`docs/agents-audit/engineering-philosophy-spec.md`](docs/agents-audit/engineering-philosophy-spec.md)에 있다.
 핵심 규칙은 다음과 같다.
 
-1. **Spec first, code second.** 메시지 role, session lifecycle, Telegram API,
-   runtime state, hook contract, service 동작이 바뀌는 behavior change는
-   문제·범위·비목표·상태·실패·acceptance criteria를 먼저 문서화한다. 코드와
+1. **Spec first, code second.** 기능 변경은 크기와 관계없이 간단한 변경 spec을
+   먼저 작성하고 사용자 승인을 받은 뒤 구현한다. 메시지 role, session lifecycle,
+   Telegram API, runtime state, hook contract, service 동작이 바뀌는 경우에는
+   문제·범위·비목표·상태·실패·acceptance criteria를 빠뜨리지 않는다. 코드와
    spec이 충돌하면 임의로 결정하지 않고 `spec gap`으로 남겨 판단을 요청한다.
 2. **사용자는 판단 책임자, AI는 구현자다.** AI는 조사·질문·spec 정리·코드·
    테스트를 담당하지만 제품 의미, trade-off, 권한·보안 완화, 데이터/topic
-   삭제, retry/drop 정책을 사용자 대신 확정하지 않는다.
+   삭제, retry/drop 정책을 사용자 대신 확정하지 않는다. 최종 spec 승인자는 사용자다.
 3. **지식은 저장소에 외부화한다.** 계약은 코드·테스트·AGENTS, 기술 결정은
    `docs/decisions/`, 장애 복구는 `docs/operations/`, 작업 spec은
    `docs/agents-audit/` 또는 작업 문서에 둔다. Telegram 대화나 모델 memory는
@@ -215,6 +216,10 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
    `hooks/user_prompt_submit.py` and `hooks/codex_user_prompt_submit.py` and
    must stay conservative. `note`/`event` use `⚠️`/`🔔`; the source of truth is
    `broker._ROLE_PREFIX`, with subprocess hook tests covering the role files.
+
+   분류 결과가 애매한 상태는 허용되는 사용자 경험이 아니라 버그다. 새 형태의
+   handoff나 user prompt가 발견되면 임의로 분류하지 말고 원인·예시를
+   `docs/learning/`에 기록한 뒤 명시적인 분류 규칙과 regression test를 추가한다.
 
 8. **Codex stale sessions are cleaned up on explicit thread failure.** If
    `codex queue` reports that the thread is unknown or does not exist,

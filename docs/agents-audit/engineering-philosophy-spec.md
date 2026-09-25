@@ -1,6 +1,6 @@
 # AGENTS.md 개발 철학 반영 spec
 
-> **상태**: 초안 — 사용자 인터뷰와 검수 후 `AGENTS.md`에 반영한다.
+> **상태**: 사용자 결정 반영 중 — 자동 삭제 정책만 최종 확인이 필요하다.
 > **목적**: `ai-session-telegram`의 코드 특성과 운영 위험에 맞는 AI 협업 원칙을 공용 agent 지침으로 승격한다.
 
 ## 1. 문제 정의
@@ -19,7 +19,9 @@
 
 ### 2.1 Spec first, code second
 
-동작·계약·운영 결과가 바뀌는 작업은 먼저 spec을 작성하고 승인받는다. spec은 다음을 포함한다.
+기능 변경은 크기와 관계없이 먼저 간단한 spec을 작성하고 사용자의 승인을 받은
+뒤 구현한다. 단순한 변경은 한 줄짜리 문제와 acceptance criterion으로 충분하지만,
+동작·계약·운영 결과가 바뀌는 작업은 다음 항목을 포함한다.
 
 - 문제와 사용자/운영자
 - 현재 동작과 원하는 동작
@@ -53,7 +55,7 @@ AI가 단독으로 확정하면 안 되는 것:
 | 기술·운영 결정 | `docs/decisions/` |
 | 장애·복구 절차 | `docs/operations/` |
 | 작업별 spec/acceptance | `docs/specs/` 또는 task 문서 |
-| 실패와 학습 | `docs/learning/` 또는 작업별 learning 문서 |
+| 실패와 학습 | `docs/learning/` |
 | 세션 handoff | 작업 문서의 handoff와 PR 설명 |
 
 같은 규칙을 여러 문서에 복사하지 않는다. 원본과 파생 문서를 구분한다.
@@ -101,7 +103,7 @@ spec 작성 agent는 구현 전에 사용자에게 질문해 불확실성을 줄
 → 작업 분류
 → 사용자 딥인터뷰
 → spec 작성
-→ 별도 spec review
+→ AI 자체 spec review
 → 사용자 판단/승인
 → AI 구현
 → 테스트·코드 review
@@ -114,7 +116,8 @@ spec 작성 agent는 구현 전에 사용자에게 질문해 불확실성을 줄
 ### 작업 분류
 
 - **관찰/문서-only**: 코드 동작·계약이 바뀌지 않으면 간단한 기록으로 진행한다.
-- **behavior change**: 메시지 role, session lifecycle, Telegram API, runtime state, hook contract, service 동작이 바뀌면 spec을 필수로 한다.
+- **기능 변경**: 코드 동작·계약이 바뀌면 크기와 관계없이 spec을 필수로 한다. 단순한
+  변경도 문제와 acceptance criterion을 최소 한 줄씩 남긴다.
 - **incident/hotfix**: 먼저 피해를 막되, 사후에 원인·영향·재발 방지를 spec/learning으로 기록한다.
 
 ### 세션 시작
@@ -141,7 +144,7 @@ AI는 다음 agent가 바로 이어갈 수 있도록 handoff를 남긴다.
 
 ## 4. `AGENTS.md`에 반영할 규칙의 acceptance criteria
 
-- [ ] behavior change는 spec 승인 전 구현하지 않는다는 규칙이 있다.
+- [ ] 모든 기능 변경은 크기와 관계없이 spec 승인 전 구현하지 않는다는 규칙이 있다.
 - [ ] 사용자와 AI의 책임 경계가 명시되어 있다.
 - [ ] 결정·계약·장애·학습·handoff의 저장 위치가 명시되어 있다.
 - [ ] broker/hook/runtime state 특성에 맞는 딥인터뷰 질문이 포함되어 있다.
@@ -150,12 +153,32 @@ AI는 다음 agent가 바로 이어갈 수 있도록 handoff를 남긴다.
 - [ ] 문서 규칙이 현재 코드의 PR·테스트·secret 정책과 충돌하지 않는다.
 - [ ] `CLAUDE.md`는 계속 `@AGENTS.md`만 참조한다.
 
-## 5. 사용자 확인이 필요한 결정
+## 5. 종료 세션 자동 삭제 정책 제안
 
-다음 질문은 `AGENTS.md`에 최종 규칙을 쓰기 전에 사용자 판단이 필요하다.
+세션과 Telegram topic 삭제는 비가역적이므로 다음 조건을 모두 만족할 때만 자동
+허용한다.
 
-1. 모든 behavior change에 spec을 강제할지, 아니면 message/session/Telegram/service contract 변경에만 강제할지?
-2. spec 승인 주체를 사용자 본인으로만 둘지, 별도 PO/reviewer agent의 사전 검수도 필수로 둘지?
-3. 공통 learning을 `docs/learning/`에 누적할지, 각 작업 문서 안에만 보관할지?
-4. AI handoff와 실제 user prompt의 분류가 애매할 때, 자동 분류보다 user 확인 메시지를 우선할지?
-5. stale session/topic 자동 삭제 같은 비가역 동작은 어떤 조건에서 자동 허용할지?
+1. **명시적 종료**: 해당 session id의 `SessionEnd`/`end` 기록이 확인되었거나,
+   Codex queue가 해당 thread가 존재하지 않는다는 확정 오류를 반환한다.
+2. **동일 세션 검증**: 삭제 대상 topic id와 session record의 id/thread mapping이
+   일치한다. 다른 세션의 topic을 추정해 삭제하지 않는다.
+3. **진행 중 작업 없음**: `busy/<sid>`가 없고, 처리 가능한 `pending`, `inbox`,
+   `outbox`가 비어 있거나 먼저 정상 처리·보존된다.
+4. **일시 장애 제외**: 네트워크 오류, timeout, rate limit, broker 재시작,
+   일시적인 hook 누락만으로는 삭제하지 않는다. 재시도 가능한 상태로 남긴다.
+5. **감사 가능성**: 삭제 전 session id, topic id, 근거, 시각을 운영 로그에 남기고
+   삭제 연산은 idempotent하게 만든다.
+
+권장 실행 규칙은 `SessionEnd`에서 agent별 설정을 따른다. Codex는 확정적인
+unknown-thread 오류가 stale 상태의 증거이므로 자동 삭제하고, Claude는
+`delete_topic_on_end`가 켜진 경우에만 명시적 종료 시 삭제한다. 조건이 애매하면
+삭제하지 않고 운영 알림과 learning 기록을 남긴다. 이 정책은 비가역 동작이므로
+사용자가 최종 승인한 뒤 코드 계약으로 승격한다.
+
+## 6. 사용자 결정 반영
+
+- 모든 기능 변경에 간단하더라도 spec을 요구한다.
+- spec 최종 승인자는 사용자다. AI는 구현 전 자체 검토와 질문을 수행한다.
+- 실패와 학습은 공통 `docs/learning/`에 누적한다.
+- 메시지 분류가 애매한 상태는 정상 동작으로 취급하지 않는다. 분류 불변식 위반은
+  버그로 기록하고 regression test로 승격한다.
