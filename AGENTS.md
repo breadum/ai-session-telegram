@@ -12,6 +12,38 @@
 
 사용자의 확인 없이 기본 브랜치에 직접 커밋하거나 머지하지 않는다. 긴급한 운영 조치가 필요한 경우에도 코드 변경과 운영 조치를 구분하고, PR에 해당 내용을 명확히 남긴다.
 
+## Development philosophy
+
+이 프로젝트의 상세 운영 spec은
+[`docs/agents-audit/engineering-philosophy-spec.md`](docs/agents-audit/engineering-philosophy-spec.md)에 있다.
+핵심 규칙은 다음과 같다.
+
+1. **Spec first, code second.** 메시지 role, session lifecycle, Telegram API,
+   runtime state, hook contract, service 동작이 바뀌는 behavior change는
+   문제·범위·비목표·상태·실패·acceptance criteria를 먼저 문서화한다. 코드와
+   spec이 충돌하면 임의로 결정하지 않고 `spec gap`으로 남겨 판단을 요청한다.
+2. **사용자는 판단 책임자, AI는 구현자다.** AI는 조사·질문·spec 정리·코드·
+   테스트를 담당하지만 제품 의미, trade-off, 권한·보안 완화, 데이터/topic
+   삭제, retry/drop 정책을 사용자 대신 확정하지 않는다.
+3. **지식은 저장소에 외부화한다.** 계약은 코드·테스트·AGENTS, 기술 결정은
+   `docs/decisions/`, 장애 복구는 `docs/operations/`, 작업 spec은
+   `docs/agents-audit/` 또는 작업 문서에 둔다. Telegram 대화나 모델 memory는
+   원본이 아니다.
+4. **구현 전 딥인터뷰를 한다.** 누가 어떤 문제를 겪는지, 보존할 기존 동작,
+   유실·중복·지연 중 우선 위험, 종료/자동정리 기대, 권한·비용·운영 제약,
+   acceptance criteria를 확인한다. 핵심 답이 비어 있으면 구현을 시작하지
+   않는다.
+5. **실패는 learning asset이다.** 실패·반려·오판은 원인, 놓친 신호, 수정한
+   규칙, 재발 방지 테스트, 남은 불확실성을 기록한다. 반복 가능한 학습은
+   regression test·불변식·decision·runbook·acceptance criterion 중 하나로
+   승격한다.
+6. **세션 간 handoff를 남긴다.** 시작할 때 AGENTS와 관련 spec/decision/
+   operation/learning을 읽고, 종료할 때 완료·미해결·검증 결과·실패 학습·
+   다음 agent가 읽을 파일·사용자 판단 질문을 기록한다.
+
+문서-only 변경은 사용자가 정한 운영에 따라 직접 갱신한다. 코드·hook·service·
+runtime 동작을 바꾸는 변경은 spec과 검증을 먼저 준비하고 기존 PR 절차를 따른다.
+
 ## Codebase guidance
 
 ## What this is
