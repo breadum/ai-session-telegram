@@ -24,8 +24,11 @@ def test_install_creates_file_and_all_events(monkeypatch, tmp_path):
 
     data = json.loads(claude.read_text())
     assert set(data["hooks"]) == set(hookinstall.CLAUDE_HOOKS)
-    for event, (script, _timeout) in hookinstall.CLAUDE_HOOKS.items():
+    for event, config in hookinstall.CLAUDE_HOOKS.items():
+        script, _timeout, *matchers = config
         [group] = data["hooks"][event]
+        if matchers:
+            assert group["matcher"] == matchers[0]
         [entry] = group["hooks"]
         assert script in entry["command"]  # not endswith: Windows quotes the path
 
@@ -92,8 +95,11 @@ def test_codex_install_uses_codex_hooks_and_file(monkeypatch, tmp_path):
 
     data = json.loads(codex.read_text())
     assert set(data["hooks"]) == set(hookinstall.CODEX_HOOKS)
-    for event, (script, _timeout) in hookinstall.CODEX_HOOKS.items():
+    for event, config in hookinstall.CODEX_HOOKS.items():
+        script, _timeout, *matchers = config
         [group] = data["hooks"][event]
+        if matchers:
+            assert group["matcher"] == matchers[0]
         [entry] = group["hooks"]
         assert script in entry["command"]  # not endswith: Windows quotes the path
 

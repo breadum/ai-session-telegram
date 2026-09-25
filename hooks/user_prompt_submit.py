@@ -8,9 +8,9 @@ A message the user sent from Telegram also fires this hook (the broker injected
 it as a peer prompt). The broker already queued that text, so re-queuing it here
 would double-post it in the topic.
 
-`bc.consume_pending_injection` (matched against claude_inject.py's
-paths.queue_pending call) is the authoritative check — it's the bridge's own
-bookkeeping, not a guess about Claude Code's internal format. `_is_peer_injection`
+`bc.consume_pending_injection` is the authoritative check for broker
+injections and prompts recorded by `agent_dispatch.py`; it uses bridge
+bookkeeping instead of guessing about Claude Code internals. `_is_peer_injection`
 below is kept only as a backstop for the case where the pending marker already
 expired (its TTL) or was never written for some other reason; a real bridge-caused
 duplicate mirror was traced back to relying on promptSource/origin/the text
@@ -28,27 +28,6 @@ _PEER_PREFIXES = (
 )
 
 
-def _looks_like_agent_handoff(prompt: str) -> bool:
-    """Recognize the narrow shape of AI-generated orchestration prompts.
-
-    Claude's hook payload does not expose whether a prompt was authored by a
-    human or by another agent. Keep this intentionally conservative so normal
-    user prompts remain user messages.
-    """
-    folded = prompt.casefold().lstrip()
-    if folded.startswith(("you are ", "당신은 ")) and (
-        "agent" in folded or "에이전트" in folded
-    ):
-        return True
-    return any(
-        marker in folded
-        for marker in (
-            "always report to the user",
-            "report progress and eta to the user",
-        )
-    )
-
-
 def _is_peer_injection(ev: dict, prompt: str) -> bool:
     if ev.get("promptSource") == "system":
         return True
@@ -64,13 +43,13 @@ def main() -> None:
     prompt = (ev.get("prompt") or "").strip()
     if not sid or not prompt:
         bc.emit()
+        return
     # act if the session is registered, or registration is still pending
     # (SessionStart fired, broker hasn't made the topic yet)
     if bc.session_file(sid).exists() or (bc.REGISTER / f"{sid}.json").exists():
         bc.mark_busy(sid)  # a turn is now running; Stop clears it
         if not (bc.consume_pending_injection(sid, prompt) or _is_peer_injection(ev, prompt)):
-            role = "assistant" if _looks_like_agent_handoff(prompt) else "user"
-            bc.queue_outbox(sid, role, prompt)
+            bc.queue_outbox(sid, "user", prompt)
     bc.emit()
 
 

@@ -37,8 +37,8 @@ INBOX = ROOT / "inbox"            # <sid>.jsonl : commands that failed to inject
 OUTBOX = ROOT / "outbox"          # <sid>/<ts>.json : queued outbound messages
 END = ROOT / "end"                # session_end drops <sid>.json here
 BUSY = ROOT / "busy"              # <sid> present : a turn is in progress
-PENDING = ROOT / "pending"        # <sid>.json : texts this bridge just queued into a session,
-                                   # awaiting the UserPromptSubmit echo (see queue_pending below)
+PENDING = ROOT / "pending"        # <sid>.json : known prompts already mirrored to Telegram,
+                                   # awaiting their UserPromptSubmit echo
 
 ALL_DIRS = [STATE, REGISTER, SESSIONS, THREADS, INBOX, OUTBOX, END, BUSY, PENDING]
 
@@ -75,14 +75,10 @@ def pending_file(sid: str) -> Path:
 _PENDING_TTL_S = 60  # keep in sync with hooks/_bridge_common.py's reader
 
 
-def queue_pending(sid: str, text: str) -> None:
-    """Record `text` as something this bridge is about to inject into session
-    `sid`, so the resulting UserPromptSubmit echo can be recognized (by
-    hooks/_bridge_common.py's consume_pending_injection) and not re-mirrored
-    into the topic as if it were new. Shared by claude_inject.py and
-    codex_inject.py; call this before actually delivering the message, so a
-    delivery that fails after this point still doesn't get double-mirrored
-    on retry.
+def queue_pending(sid: str, text: str, *, match: str = "substring") -> None:
+    """Record `text` as a known prompt so its UserPromptSubmit echo is not
+    mirrored into the topic again. The default substring match handles Claude
+    wrappers; use exact matching for Codex and agent dispatch prompts.
     """
     f = pending_file(sid)
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +90,7 @@ def queue_pending(sid: str, text: str) -> None:
             items = []
         now = time.time()
         items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
-        items.append({"text": text, "ts": now})
+        items.append({"text": text, "ts": now, "match": match})
         fh.seek(0)
         fh.truncate()
         fh.write(json.dumps(items, ensure_ascii=False))

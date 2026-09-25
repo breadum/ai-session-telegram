@@ -40,7 +40,7 @@ def inject_codex_message(sid: str, text: str, *, timeout: float = 10.0) -> None:
     the text as pending first so the echoed UserPromptSubmit isn't mirrored
     a second time, even if the subprocess call itself then fails.
     """
-    paths.queue_pending(sid, text)
+    paths.queue_pending(sid, text, match="exact")
     try:
         proc = subprocess.run(
             ["codex", "queue", "--thread", sid, "--message", text],

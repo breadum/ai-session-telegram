@@ -78,27 +78,48 @@ def queue_outbox(sid: str, role: str, text: str, *, ai_title: str = "") -> None:
 
 
 # --------------------------------------------------------------------------
-# pending-injection tracking
+# pending prompt tracking
 #
-# Neither agent's UserPromptSubmit payload turned out to be a reliable signal
-# for "this was injected by the bridge, not typed": Codex has no wrapper at
-# all (arrives looking exactly like something the user typed), and Claude
-# Code's peer-message wrapper/origin/promptSource fields turned out not to be
-# consistently present or matchable in practice either (a real bridge-caused
-# duplicate mirror was traced back to exactly this). So both claude_inject.py
-# and codex_inject.py record the exact text they're about to deliver here
-# (paths.queue_pending) before delivering it, and this consumes a matching
-# entry so the echo isn't mirrored twice. Claude Code wraps the original text
-# before the hook sees it (Codex doesn't), hence substring rather than exact
-# match below.
+# Hook payloads do not reliably identify a prompt's origin. Agent dispatch
+# prompts and broker injections are marked before delivery; matching echoes
+# are consumed instead of being mirrored a second time. Claude wraps broker
+# injections, so its match may be a substring.
 # --------------------------------------------------------------------------
 
 _PENDING_TTL_S = 60  # keep in sync with paths.queue_pending's writer
 
 
+def queue_pending(sid: str, prompt: str, *, match: str = "substring") -> None:
+    """Mark a known prompt whose UserPromptSubmit echo is already mirrored."""
+    f = PENDING / f"{sid}.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f, "a+", encoding="utf-8") as fh:
+        fh.seek(0)
+        if os.name == "nt":
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            try:
+                items = json.loads(fh.read() or "[]")
+            except json.JSONDecodeError:
+                items = []
+            now = time.time()
+            items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
+            items.append({"text": prompt, "ts": now, "match": match})
+            fh.seek(0)
+            fh.truncate()
+            fh.write(json.dumps(items, ensure_ascii=False))
+        finally:
+            if os.name == "nt":
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def consume_pending_injection(sid: str, prompt: str) -> bool:
-    """True and removes the entry if `prompt` contains a message the broker
-    just queued into this session; stale entries are pruned along the way."""
+    """Remove one matching pending prompt entry; prune stale entries meanwhile."""
     f = PENDING / f"{sid}.json"
     if not f.exists():
         return False
@@ -116,7 +137,10 @@ def consume_pending_injection(sid: str, prompt: str) -> bool:
         items = [it for it in items if now - it.get("ts", 0) < _PENDING_TTL_S]
         found = False
         for i, it in enumerate(items):
-            if it.get("text") and it["text"] in prompt:
+            text = it.get("text", "")
+            # ponytail: exact text correlation; use event IDs when both hooks expose them.
+            matched = text == prompt if it.get("match") == "exact" else text in prompt
+            if text and matched:
                 items.pop(i)
                 found = True
                 break
