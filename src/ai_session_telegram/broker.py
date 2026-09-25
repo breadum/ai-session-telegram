@@ -180,6 +180,25 @@ def _forget_session(sid: str, thread_id: int | None) -> None:
     _wipe_outbox(sid)
 
 
+def _topic_mapping_matches(sid: str, rec: dict, thread_id: int | None) -> bool:
+    """Return whether the record and reverse mapping identify the same topic."""
+    return (
+        thread_id is not None
+        and rec.get("thread_id") == thread_id
+        and _sid_for_thread(thread_id) == sid
+    )
+
+
+def _queued_counts(sid: str) -> dict[str, int]:
+    """Count local work that is discarded only after an authoritative end."""
+    outbox = paths.outbox_dir(sid)
+    return {
+        "pending": int(paths.pending_file(sid).exists()),
+        "inbox": len(_inbox_lines(sid)),
+        "outbox": len(list(outbox.glob("*"))) if outbox.exists() else 0,
+    }
+
+
 # --------------------------------------------------------------------------
 # broker
 # --------------------------------------------------------------------------
@@ -501,14 +520,29 @@ class Broker:
     def _cleanup_gone_codex_session(
         self, sid: str, rec: dict, thread_id: int, error: Exception
     ) -> None:
+        if not _topic_mapping_matches(sid, rec, thread_id):
+            log.error(
+                "refusing stale cleanup for %s: topic %s does not match session mapping",
+                sid,
+                thread_id,
+            )
+            return
+        queued = _queued_counts(sid)
         deleted = self.tg.delete_forum_topic(self.cfg.chat_id, thread_id)
+        if not deleted:
+            log.warning(
+                "stale topic cleanup deferred for %s (topic %s deletion failed)",
+                sid,
+                thread_id,
+            )
+            return
         _forget_session(sid, thread_id)
         log.warning(
-            "Codex session %s is gone -> stale topic %s deleted=%s (%s)",
+            "Codex session %s is gone -> stale topic %s deleted (%s, discarded=%s)",
             sid,
             thread_id,
-            deleted,
             error,
+            queued,
         )
 
     # --- inbox retry -> session ---------------------------------
@@ -602,6 +636,7 @@ class Broker:
             sid = f.stem
             rec = _read_session(sid)
             tid = rec.get("thread_id") if rec else None
+            handled = True
             # Codex sessions do not have a socket/process identity that the
             # broker can reconcile after the hook runs.  Once Codex tells us
             # the main thread ended, keeping its topic only leaves a dead
@@ -611,10 +646,31 @@ class Broker:
                 self.cfg.delete_topic_on_end or rec.get("kind") == "codex"
             )
             if delete_topic:
-                if tid is not None:
-                    self.tg.delete_forum_topic(self.cfg.chat_id, tid)
-                _forget_session(sid, tid)
-                log.info("session %s ended -> topic %s deleted", sid, tid)
+                if tid is not None and not _topic_mapping_matches(sid, rec, tid):
+                    handled = False
+                    log.error(
+                        "refusing end cleanup for %s: topic %s does not match session mapping",
+                        sid,
+                        tid,
+                    )
+                else:
+                    queued = _queued_counts(sid)
+                    deleted = tid is None or self.tg.delete_forum_topic(self.cfg.chat_id, tid)
+                    if deleted:
+                        _forget_session(sid, tid)
+                        log.info(
+                            "session %s ended -> topic %s deleted (discarded=%s)",
+                            sid,
+                            tid,
+                            queued,
+                        )
+                    else:
+                        handled = False
+                        log.warning(
+                            "session %s end cleanup deferred: topic %s deletion failed",
+                            sid,
+                            tid,
+                        )
             elif rec:
                 rec["status"] = "ended"
                 rec["ended"] = _now()
@@ -622,7 +678,8 @@ class Broker:
                 if tid is not None:
                     self._say(tid, "🔴 session ended. (/exit to delete this topic)")
                 log.info("session %s ended", sid)
-            f.unlink(missing_ok=True)
+            if handled:
+                f.unlink(missing_ok=True)
 
     # --- small helpers ---------------------------------------
 

@@ -277,6 +277,33 @@ def test_codex_session_end_deletes_topic_even_when_option_is_off(monkeypatch):
     assert not paths.thread_file(101).exists()
 
 
+def test_session_end_keeps_state_when_topic_mapping_is_not_owned(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    paths.thread_file(101).write_text("another-session")
+    (paths.END / "cx1.json").write_text(json.dumps({"session_id": "cx1"}))
+
+    b._process_end()
+
+    assert fake.deleted == []
+    assert paths.session_file("cx1").exists()
+    assert (paths.END / "cx1.json").exists()
+
+
+def test_session_end_retries_when_topic_deletion_fails(monkeypatch):
+    b, fake = fakes.install(monkeypatch)
+    _register_codex()
+    b._process_registrations()
+    monkeypatch.setattr(fake, "delete_forum_topic", lambda *args: False)
+    (paths.END / "cx1.json").write_text(json.dumps({"session_id": "cx1"}))
+
+    b._process_end()
+
+    assert paths.session_file("cx1").exists()
+    assert (paths.END / "cx1.json").exists()
+
+
 def test_outbox_titles_topic_from_ai_title(monkeypatch):
     b, fake = fakes.install(monkeypatch)
     _register()
