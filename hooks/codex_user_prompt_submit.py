@@ -17,21 +17,6 @@ from __future__ import annotations
 import _bridge_common as bc
 
 
-def _looks_like_agent_handoff(prompt: str) -> bool:
-    """Recognize Codex's AI-generated agent handoff prompts.
-
-    Codex exposes these through UserPromptSubmit using the same payload shape
-    as a human prompt.  There is no origin field to use, so keep the rule
-    deliberately narrow: an explicit "you are ... agent" instruction is an
-    AI handoff, not an ordinary user message.
-    """
-    folded = prompt.casefold().lstrip()
-    if folded.startswith("🐮 저장소 "):
-        return True
-    starts_as_role = folded.startswith(("당신은 ", "you are "))
-    return starts_as_role and ("agent" in folded or "에이전트" in folded)
-
-
 def main() -> None:
     ev = bc.read_event()
     sid = ev.get("session_id") or ""
@@ -43,8 +28,7 @@ def main() -> None:
     if bc.session_file(sid).exists() or (bc.REGISTER / f"{sid}.json").exists():
         bc.mark_busy(sid)  # a turn is now running; Stop clears it
         if not bc.consume_pending_injection(sid, prompt):
-            role = "assistant" if _looks_like_agent_handoff(prompt) else "user"
-            bc.queue_outbox(sid, role, prompt)
+            bc.queue_outbox(sid, "user", prompt)
     bc.emit()
 
 
