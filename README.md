@@ -34,11 +34,11 @@ group, and keep going from your phone whenever you step away.
 A typical topic looks something like this:
 
 ```
-🧑  Logging in redirects to /login instead of home. Take a look.
+🐮  Logging in redirects to /login instead of home. Take a look.
 🤖  The auth middleware sends to /login whenever there's no session, but
     that also catches requests mid token-refresh. Let the refresh
     handler run first and it's fixed.
-🧑  Go ahead and fix it.
+🐮  Go ahead and fix it.
 🔧  Working (14s)
 🤖  Added a refresh-token exception at middleware/auth.ts:23. Logged in
     locally and home stays put now.
@@ -153,7 +153,7 @@ launch.
 
 ## Usage
 
-Prompts (`🧑`) and responses (`🤖`) land in the topic as-is. Markdown gets
+Prompts (`🐮`) and responses (`🤖`) land in the topic as-is. Markdown gets
 converted to Telegram formatting, and tables become width-aligned monospace
 blocks.
 
@@ -188,7 +188,7 @@ What `bridge setup` writes to `~/.ai-session-telegram/config.json`:
 |---|---|---|
 | `bot_token` | – | Telegram bot token |
 | `chat_id` | – | supergroup ID |
-| `delete_topic_on_end` | `false` | whether ending a session in the terminal also deletes its topic |
+| `delete_topic_on_end` | `false` | whether ending a session in the terminal also deletes its topic (Codex topics are always deleted when Codex reports `SessionEnd`) |
 
 Can be overridden with the environment variables `AI_TG_BOT_TOKEN`,
 `AI_TG_CHAT_ID`, `AI_TG_DELETE_TOPIC_ON_END`.

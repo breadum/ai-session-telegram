@@ -8,7 +8,11 @@ import subprocess
 import pytest
 
 from ai_session_telegram import paths
-from ai_session_telegram.codex_inject import CodexInjectError, inject_codex_message
+from ai_session_telegram.codex_inject import (
+    CodexInjectError,
+    CodexSessionGoneError,
+    inject_codex_message,
+)
 
 
 def _ok(cmd, **kwargs):
@@ -54,6 +58,15 @@ def test_inject_raises_on_nonzero_exit(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fail)
     with pytest.raises(CodexInjectError, match="no thread named sid-4"):
+        inject_codex_message("sid-4", "hi")
+
+
+def test_inject_distinguishes_gone_session(monkeypatch):
+    def fail(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no thread named sid-4")
+
+    monkeypatch.setattr(subprocess, "run", fail)
+    with pytest.raises(CodexSessionGoneError, match="no thread named sid-4"):
         inject_codex_message("sid-4", "hi")
 
 

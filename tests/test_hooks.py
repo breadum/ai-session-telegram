@@ -116,6 +116,23 @@ def test_user_prompt_submit_mirrors_when_pending(hook_env):
     assert (bc.BUSY / "sess-C").exists()  # turn is now in progress
 
 
+def test_claude_agent_handoff_is_mirrored_as_assistant(hook_env):
+    bc.write_json_atomic(bc.session_file("claude-agent"), {"session_id": "claude-agent"})
+    prompt = (
+        "Check the detached re-crawl and report progress and ETA to the user. "
+        "Always report to the user."
+    )
+    r = run_hook(
+        "user_prompt_submit.py",
+        {"session_id": "claude-agent", "prompt": prompt},
+        hook_env,
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "claude-agent").iterdir())
+    assert json.loads(files[0].read_text()) == {"role": "assistant", "text": prompt}
+    assert (bc.BUSY / "claude-agent").exists()  # turn is now in progress
+
+
 def test_user_prompt_submit_skips_peer_injection_echo(hook_env):
     # A Telegram message the broker injected comes back through this hook wrapped
     # in Claude Code's peer preamble. It must not be re-mirrored (double post),
@@ -287,6 +304,32 @@ def test_codex_user_prompt_submit_mirrors_when_pending(hook_env):
     files = list((bc.OUTBOX / "cx-C").iterdir())
     assert json.loads(files[0].read_text()) == {"role": "user", "text": "do it"}
     assert (bc.BUSY / "cx-C").exists()  # turn is now in progress
+
+
+def test_codex_agent_handoff_is_mirrored_as_assistant(hook_env):
+    bc.write_json_atomic(bc.REGISTER / "cx-agent.json", {"session_id": "cx-agent", "kind": "codex"})
+    prompt = "당신은 backnote-po 제품 반영 검수 agent입니다. 산출물을 직접 읽어 판정하세요."
+    r = run_hook(
+        "codex_user_prompt_submit.py",
+        {"session_id": "cx-agent", "prompt": prompt},
+        hook_env,
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "cx-agent").iterdir())
+    assert json.loads(files[0].read_text()) == {"role": "assistant", "text": prompt}
+
+
+def test_codex_session_handoff_is_mirrored_as_assistant(hook_env):
+    bc.write_json_atomic(bc.REGISTER / "cx-session.json", {"session_id": "cx-session"})
+    prompt = "🐮 저장소 /home/breadum/Work/backnote\ncwd: /tmp\ntask: 008 구현을 진행하라"
+    r = run_hook(
+        "codex_user_prompt_submit.py",
+        {"session_id": "cx-session", "prompt": prompt},
+        hook_env,
+    )
+    assert r.returncode == 0
+    files = list((bc.OUTBOX / "cx-session").iterdir())
+    assert json.loads(files[0].read_text()) == {"role": "assistant", "text": prompt}
 
 
 def test_codex_user_prompt_submit_skips_pending_injection_echo(hook_env):
