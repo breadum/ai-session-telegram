@@ -191,12 +191,11 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      "queued behind the current turn" note. mtime = turn start.
    - `end/<sid>.json` — session_end → broker marks ended; Codex topics are
      deleted automatically, while Claude follows `delete_topic_on_end`
-   - `pending/<sid>.json` — texts `claude_inject.py`/`codex_inject.py` just
-     queued (via `paths.queue_pending`), awaiting the `UserPromptSubmit` echo
-     (see item 3). TTL-pruned. `consume_pending_injection` matches Claude's
-     entries by substring (Code wraps the original text before the hook sees
-     it) and Codex's by the same check (trivially exact, since Codex doesn't
-     wrap at all).
+   - `pending/<sid>.json` — broker-injected or agent-dispatched prompts already
+     mirrored to Telegram, awaiting the `UserPromptSubmit` echo. TTL-pruned.
+     `consume_pending_injection` matches Claude broker injections by substring
+     (Claude wraps the original text); Codex injections and agent dispatches use
+     exact matching.
    Change the `outbox` JSON shape and you must change both the hook that writes
    it (`_bridge_common.queue_outbox`) and `broker._read_outbox_item`.
 
@@ -225,12 +224,13 @@ it's handled (delivery mechanism, hook payload shape). Absent `kind` means
      Without *some* working version of this, every Telegram message
      double-posts in its topic.
 
-7. **Prompt role classification has an explicit order.** Pending injection
-   echoes are consumed first, known Claude peer/system echoes are then dropped,
-   narrowly recognized AI handoff prompts are mirrored as `assistant` (`🤖`),
-   and ordinary prompts remain `user` (`🐮`). The heuristic lives in
-   `hooks/user_prompt_submit.py` and `hooks/codex_user_prompt_submit.py` and
-   must stay conservative. `note`/`event` use `⚠️`/`🔔`; the source of truth is
+7. **Prompt role classification has an explicit source.** Agent task prompts
+   are mirrored as `assistant` (`🤖`) at Claude `Agent`/`Task` or Codex `Agent`
+   `PreToolUse`, where the tool call identifies the dispatch. Their matching
+   `UserPromptSubmit` echoes are consumed from `pending/`; every other prompt
+   is `user` (`🐮`), regardless of wording. Do not infer authorship from prompt
+   text. Known Claude peer/system echoes are still dropped by the existing
+   backstop. `note`/`event` use `⚠️`/`🔔`; the source of truth is
    `broker._ROLE_PREFIX`, with subprocess hook tests covering the role files.
 
    분류 결과가 애매한 상태는 허용되는 사용자 경험이 아니라 버그다. 새 형태의

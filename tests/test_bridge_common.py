@@ -255,6 +255,23 @@ def test_consume_pending_injection_matches_and_removes():
     assert json.loads(f.read_text()) == []
 
 
+def test_consume_pending_agent_prompt_requires_exact_match():
+    f = bc.PENDING / "sidExact.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps([{"text": "agent task", "ts": time.time(), "match": "exact"}]))
+
+    assert bc.consume_pending_injection("sidExact", "agent task with extra text") is False
+    assert bc.consume_pending_injection("sidExact", "agent task") is True
+
+
+def test_queue_pending_appends_and_preserves_exact_matching():
+    bc.queue_pending("sidAppend", "first task", match="exact")
+    bc.queue_pending("sidAppend", "second task", match="exact")
+
+    assert bc.consume_pending_injection("sidAppend", "first task") is True
+    assert bc.consume_pending_injection("sidAppend", "second task") is True
+
+
 def test_consume_pending_injection_no_match_returns_false():
     assert bc.consume_pending_injection("sidY", "never queued") is False
 

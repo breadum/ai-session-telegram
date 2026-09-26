@@ -28,7 +28,7 @@ from pathlib import Path
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
 CODEX_SETTINGS = Path.home() / ".codex" / "hooks.json"
 
-# event name -> (hook script filename, hook timeout in seconds or None for default)
+# event name -> (hook script filename, timeout, optional matcher)
 # Every hook is non-blocking: it drops a file under paths.ROOT and exits, so the
 # default timeout is plenty.
 CLAUDE_HOOKS = {
@@ -37,6 +37,7 @@ CLAUDE_HOOKS = {
     "Stop": ("stop.py", None),
     "SessionEnd": ("session_end.py", None),
     "Notification": ("notification.py", None),
+    "PreToolUse": ("agent_dispatch.py", None, "Agent|Task"),
 }
 
 CODEX_HOOKS = {
@@ -45,6 +46,8 @@ CODEX_HOOKS = {
     "Stop": ("codex_stop.py", None),
     "SessionEnd": ("codex_session_end.py", None),
     "PermissionRequest": ("codex_permission_request.py", None),
+    # Codex's matcher alias `Agent` also matches the canonical `spawn_agent` name.
+    "PreToolUse": ("agent_dispatch.py", None, "Agent"),
 }
 
 
@@ -84,7 +87,7 @@ def _is_ours(entry: dict) -> bool:
     return False
 
 
-def _install(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> None:
+def _install(settings: Path, hook_map: dict[str, tuple]) -> None:
     if not settings.exists():
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text("{}\n", encoding="utf-8")
@@ -92,20 +95,24 @@ def _install(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> Non
     data = _load(settings)
     hooks = data.setdefault("hooks", {})
 
-    for event, (script, timeout) in hook_map.items():
+    for event, config in hook_map.items():
+        script, timeout, *matchers = config
         groups = hooks.setdefault(event, [])
         groups[:] = [g for g in groups if not _is_ours(g)]  # drop stale versions
         hook_entry: dict = {"type": "command", "command": _command_for(script)}
         if timeout is not None:
             hook_entry["timeout"] = timeout
-        groups.append({"hooks": [hook_entry]})
+        group = {"hooks": [hook_entry]}
+        if matchers:
+            group["matcher"] = matchers[0]
+        groups.append(group)
         print(f"  + {event}: {_command_for(script)}"
               + (f"  (timeout {timeout}s)" if timeout else ""))
 
     settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def _uninstall(settings: Path, hook_map: dict[str, tuple[str, int | None]]) -> None:
+def _uninstall(settings: Path, hook_map: dict[str, tuple]) -> None:
     if not settings.exists():
         print(f"no {settings}")
         return
